@@ -27,6 +27,10 @@ export function hubClient(url: string, key: string) {
       data = text ? JSON.parse(text) : null;
     } catch {}
     if (!response.ok) throw new HubError(response.status, data?.error ?? `中台返回 ${response.status}`);
+    // A proxy's 200 error page is not a receipt acknowledgement: workers must keep the result for another try.
+    if (data === null || typeof data !== "object") {
+      throw new HubError(502, "中台没有返回有效的 JSON 确认，本次结果未确认");
+    }
     return data;
   }
   return {
@@ -37,7 +41,11 @@ export function hubClient(url: string, key: string) {
     },
     started: (run: number, token: string, body: { session?: string; link?: string }) =>
       call("POST", `/v1/runs/${run}/started`, { token, body }),
-    result: (run: number, token: string, body: unknown) => call("POST", `/v1/runs/${run}/result`, { token, body }),
+    result: async (run: number, token: string, body: unknown) => {
+      const answer = await call("POST", `/v1/runs/${run}/result`, { token, body });
+      if (!Array.isArray(answer.rejected)) throw new HubError(502, "中台没有返回回执确认，本次结果未确认");
+      return answer;
+    },
     // The channel's door.
     nextCard: (wait: number) => call("GET", `/v1/cards/next?wait=${wait}`, { timeout: wait + 30 }),
     delivered: (card: number, version: number, ref: string | null) =>

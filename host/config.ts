@@ -1,6 +1,7 @@
 // What this machine is in the system: config.json, private to its owner. On a machine that runs everything it has all
 // of these; a machine that only does work has the hub's address and a worker's key.
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { HOME } from "./home.ts";
 import { privateDirectory } from "./files.ts";
@@ -46,6 +47,11 @@ export function readConfig(): Config {
 
 export function writeConfig(config: Config) {
   privateDirectory(HOME);
-  writeFileSync(`${CONFIG_FILE}.tmp`, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  renameSync(`${CONFIG_FILE}.tmp`, CONFIG_FILE);
+  const temporary = `${CONFIG_FILE}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+    renameSync(temporary, CONFIG_FILE);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }

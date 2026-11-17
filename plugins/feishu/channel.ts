@@ -8,6 +8,18 @@ import type { Card, ChannelContext } from "../../host/channels.ts";
 import { eachLine } from "../../host/lines.ts";
 import { commandLine } from "../../host/command.ts";
 
+// Error.message from a subprocess includes its argv and output. Only structural status belongs in channel logs.
+function cliFailure(operation: string, error?: unknown) {
+  const { code, signal } = (error ?? {}) as { code?: unknown; signal?: unknown };
+  const status = [
+    ...(Number.isSafeInteger(code) || (typeof code === "string" && /^[A-Z][A-Z0-9_]{0,40}$/.test(code))
+      ? [`code=${code}`]
+      : []),
+    ...(typeof signal === "string" && /^SIG[A-Z0-9]{1,20}$/.test(signal) ? [`signal=${signal}`] : []),
+  ];
+  return new Error(`lark-cli ${operation} 失败${status.length ? ` (${status.join(", ")})` : ""}`);
+}
+
 /** Feishu sends these values as JSON in a string, which may be empty. */
 function safeJson(text: unknown): any {
   if (typeof text !== "string" || !text) return null;
@@ -102,33 +114,50 @@ export function render(card: Card) {
 
 export default async function feishu({ hub, options, log, signal }: ChannelContext) {
   const program = (options.lark as string | undefined) ?? "lark-cli";
-  const lark = async (args: string[], input?: string) => {
+  const lark = async (operation: string, args: string[], input?: string) => {
     const printed = await new Promise<string>((resolve, reject) => {
       const child = execFile(
         ...commandLine([program, ...args]),
         { encoding: "utf8", timeout: 60_000, signal },
         (error, stdout) => (error ? reject(error) : resolve(stdout)),
       );
-      child.stdin!.on("error", input === undefined ? () => {} : reject);
+      child.stdin!.on("error", (error) => {
+        if (input !== undefined) reject(error);
+      });
       child.stdin!.end(input);
+    }).catch((error) => {
+      throw cliFailure(operation, error);
     });
-    const out = JSON.parse(printed);
+    let out;
+    try {
+      out = JSON.parse(printed);
+    } catch {
+      throw cliFailure(operation);
+    }
+    if (!out || typeof out !== "object" || Array.isArray(out)) throw cliFailure(operation);
     if (out.ok === false || out.error) {
-      throw new Error(`lark-cli ${args.slice(0, 3).join(" ")}: ${JSON.stringify(out.error ?? out).slice(0, 300)}`);
+      throw cliFailure(operation, { code: Number.isSafeInteger(out.error?.code) ? out.error.code : undefined });
     }
     return out;
   };
-  const owner = (options.user as string | undefined) ?? (await lark(["auth", "status"], "")).identities?.user?.openId;
+  const owner =
+    (options.user as string | undefined) ??
+    (await lark("auth status", ["auth", "status"], "")).identities?.user?.openId;
   if (!owner) throw new Error("飞书通道要在 config.json 写 user，或者先 lark-cli auth login");
 
   const updateMessage = (ref: string, content: string) =>
-    lark(["im", "messages", "patch", "--message-id", ref, "--as", "bot", "--data", "-"], JSON.stringify({ content }));
+    lark(
+      "im messages patch",
+      ["im", "messages", "patch", "--message-id", ref, "--as", "bot", "--data", "-"],
+      JSON.stringify({ content }),
+    );
 
   /** Sends the card's words as a new message, or hands back the one an earlier try with this key already made. */
   async function sendMessage(key: string, content: string) {
     const target = ["--user-id", owner, "--as", "bot", "--msg-type", "interactive"];
     const once = ["--idempotency-key", key];
-    return (await lark(["im", "+messages-send", ...target, ...once, "--content", content])).data.message_id as string;
+    return (await lark("im +messages-send", ["im", "+messages-send", ...target, ...once, "--content", content])).data
+      .message_id as string;
   }
 
   async function deliver() {
@@ -211,11 +240,11 @@ export default async function feishu({ hub, options, log, signal }: ChannelConte
         stdio: ["pipe", "pipe", "pipe"],
       });
       // Unheard, this would end the whole hub. A process that never started still closes, which starts it again below.
-      consume.on("error", (error) => log(`the click listener couldn't run: ${error}`));
+      consume.on("error", (error) => log(String(cliFailure("event consume", error))));
       const stop = () => consume.kill();
       signal.addEventListener("abort", stop);
-      eachLine(consume.stderr, log);
-      eachLine(consume.stdout, (line) => void clicked(line).catch((error) => log(`click not handled: ${error}`)));
+      eachLine(consume.stderr, () => log(String(cliFailure("event consume"))));
+      eachLine(consume.stdout, (line) => void clicked(line).catch(() => log(String(cliFailure("event consume")))));
       await new Promise((resolve) => consume.on("close", resolve));
       signal.removeEventListener("abort", stop);
       if (!signal.aborted) {

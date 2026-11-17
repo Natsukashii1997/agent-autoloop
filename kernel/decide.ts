@@ -553,11 +553,15 @@ function answer(draft: Draft, id: number, given: Row) {
   return { changed: true, state: "decided" };
 }
 
+function reachesChannel(draft: Draft, card: Row, channel: string) {
+  const reach = (card.rule ? ruleNamed(draft, card.rule)?.channels : undefined) ?? draft.rules.defaultChannels;
+  return !reach || reach.includes(channel);
+}
+
 function nextCard(draft: Draft, channel: string) {
   const { now } = draft;
   for (const card of draft.view.deliveryCandidates(channel, now)) {
-    const reach = (card.rule ? ruleNamed(draft, card.rule)?.channels : undefined) ?? draft.rules.defaultChannels;
-    if (reach && !reach.includes(channel)) continue;
+    if (!reachesChannel(draft, card, channel)) continue;
     const key = `${card.id}:${channel}`;
     const delivery = draft.view.get("deliveries", key) ?? NOT_DELIVERED;
     const recentNote = card.fyi && Date.parse(card.created_at) >= now - 24 * 60 * MINUTE;
@@ -814,11 +818,15 @@ const HANDLERS: Record<string, (draft: Draft, ...args: any[]) => unknown> = {
   answer,
   nextCard,
   delivered(draft, channel, id, version, ref) {
-    if (!draft.view.get("cards", id)) throw new NotFound("没有这张卡片");
+    const card = draft.view.get("cards", id);
+    if (!card) throw new NotFound("没有这张卡片");
+    const existing = draft.view.get("deliveries", `${id}:${channel}`);
+    // A report already in flight survives a routing edit; a channel excluded from the start cannot invent one.
+    if (!existing && !reachesChannel(draft, card, channel)) throw new AuthError("这张卡片没有交给这个通道");
     if (ref !== null && (typeof ref !== "string" || [...ref].length > DELIVERY_REF)) {
       throw new InputError(`消息编号最多 ${DELIVERY_REF} 字`);
     }
-    const delivery = draft.view.get("deliveries", `${id}:${channel}`) ?? NOT_DELIVERED;
+    const delivery = existing ?? NOT_DELIVERED;
     const sent = { version: Math.max(delivery.version, version), ref: delivery.ref ?? ref };
     put(draft, "deliveries", `${id}:${channel}`, { card_id: id, channel, ...sent, ...NOT_TRYING, error: null });
   },
