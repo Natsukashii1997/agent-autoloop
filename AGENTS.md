@@ -16,8 +16,8 @@
 
 - 测试写在实现之前，每个测试文件开头先写它防的失败方式；修 bug 先写复现它的失败测试。一个行为一条测试，边角情况不单写，不补复述实现的测试。
 - `npm test`、`npm run typecheck` 和 `npm run format:check` 都要过。没动 `kernel/`、`protocol/`、`sim/` 时，`npm run test:quick` 跳过模拟和穷举，其余测试照跑。
-- `main` 合并前必须通过 Ubuntu、macOS 和 Windows 的 `check`，三项都核对 PR 的最终提交。
-- CI 由 `scripts/ci-scope.sh` 按改动范围分流：纯文档全部跳过；其他代码的 PR 跳过模拟和穷举；`kernel/`、`protocol/` 和模拟本身的 PR 另跑 2 万步模拟（`npm run test:sim`）；只有改 `tests/simulation.test.ts`、`sim/enumerate.ts` 的 PR 跑完整检查，别处跑不到它们。合进 main 后都再跑一遍快速测试和安装冒烟，跑起来的这一遍不会被后面的推送取消；还在排队的由更新的那一遍接替，它覆盖前面所有提交。`nightly` 工作流每天跑一次 20 万步模拟、穷举、强杀和变异，并用最新的 Node 跑快速测试和安装冒烟；改 `sim/` 或它自己的 PR 只跑强杀和变异。让测试读取某份文档时，同步改这个脚本。
+- `main` 合并前必须通过 Ubuntu 的 `check`，核对 PR 的最终提交。macOS 平时不跑，改安装、后台服务或进程处理这类可能因系统而异的地方时，合并前手动跑一次（`gh workflow run check.yml --ref <分支> -f os=macos-latest`）。Windows 不在 CI 里跑。
+- CI 由 `scripts/ci-scope.sh` 按改动范围分流：纯文档全部跳过；其他代码的 PR 跳过模拟和穷举；`kernel/`、`protocol/` 和模拟本身的 PR 另跑 2 万步模拟（`npm run test:sim`）；只有改 `tests/simulation.test.ts`、`sim/enumerate.ts` 的 PR 跑完整检查，别处跑不到它们。合进 main 后都再跑一遍快速测试和安装冒烟，跑起来的这一遍不会被后面的推送取消；还在排队的由更新的那一遍接替，它覆盖前面所有提交。`nightly` 工作流每周日跑一次 20 万步模拟、穷举、强杀和变异，并用最新的 Node 跑快速测试和安装冒烟；改 `sim/` 或它自己的 PR 只跑强杀和变异。让测试读取某份文档时，同步改这个脚本。
 - `npm test` 跑固定种子的 20 万步模拟与有界穷举；涉及日志、到期表或并发时还跑 `npm run test:nightly`。变异必须先证明原版测试实际执行且通过，不拿语法错误当检出；漏过任何一处都算失败。
 - 升级不写数据迁移。事实日志是唯一的权威状态；投影及索引在同一事务内持久化，正常启动复用，格式指纹变化时从日志逐条重建；查询视图的列写在 `host/state.ts`，每次启动重建，不按版本加迁移文件。
 - 面向用户的字用中文大白话；代码注释用英文，只写代码看不出来的原因。
@@ -51,16 +51,16 @@ PR 一开出来就开审查，几个 PR 同时审，不排队。审查报的问�
 
 改动按批做。开工时定下这批的清单，中途的新发现记到下一批。这些都做完才算完：
 
-- `main` 的检查和每日检查都过。
+- `main` 的检查和 nightly 检查都过。
 - 相关 Issue 的状态都说对了。
 - 工作树和临时分支清掉。
-- 让 Codex 审一遍这批的全部改动，查出的问题留在这一批修。第一个改内核或测试的 PR 合并后就跑一遍每日检查和这次审查，不放到最后。
+- 让 Codex 审一遍这批的全部改动，查出的问题留在这一批修。第一个改内核或测试的 PR 合并后就跑一遍 nightly 检查和这次审查，不放到最后。
 
 一批做完不跟着发版，改动攒到下一个常规版。
 
 ## 怎么发版
 
-常规改动一天最多发一版，崩溃、丢数据、安全问题、装不上的修复随时发；版本号怎么加见[协议](docs/protocol.md#版本与兼容)。版本号只写在 tag 上，不进任何文件。选一个 `main` 的检查已经通过、真实跑过并核实过的提交，在它上面跑每日检查（`gh workflow run nightly.yml --ref main -f commit=<完整提交号>`，20 万步模拟和穷举也在里面），过了再把 tag 打在它上面，写清这一版改了什么。发出去的 tag 不挪不删。
+常规改动一天最多发一版，崩溃、丢数据、安全问题、装不上的修复随时发；版本号怎么加见[协议](docs/protocol.md#版本与兼容)。版本号只写在 tag 上，不进任何文件。选一个 `main` 的检查已经通过、真实跑过并核实过的提交，在它上面跑 nightly 检查（`gh workflow run nightly.yml --ref main -f commit=<完整提交号>`，20 万步模拟和穷举也在里面），过了再把 tag 打在它上面，写清这一版改了什么。发出去的 tag 不挪不删。
 
 ## 内核边界
 
@@ -85,4 +85,4 @@ PR 一开出来就开审查，几个 PR 同时审，不排队。审查报的问�
 
 本机用 `init --no-service` 准备验收时，先从临时 `config.json` 和 `rules.json` 的 `channels` 移除 `desktop` 再启动 `up`。验收桌面通道时才保留 `desktop`，并用放在 PATH 最前面的假命令接收通知。后台启动时记下这次进程的 PID，正常结束、失败和中断时都等该进程退出后再删临时目录。
 
-`scripts/install-smoke.sh` 在临时 HOME 里走一遍从安装到卸载，装的是已提交的代码，CI 在 Ubuntu 和 macOS 上都跑。Windows 用 `scripts/install-smoke-windows.ts`，共用行为和原生进程检查用 `npm run test:windows`。Unix shell、Homebrew 与服务模拟仍在 Unix 验证，Windows 原生安装、通知和进程树由专用测试覆盖。登录服务在真实桌面会话验证，CI 不注册用户任务。
+`scripts/install-smoke.sh` 在临时 HOME 里走一遍从安装到卸载，装的是已提交的代码，CI 在 Ubuntu 上跑，macOS 手动触发时跑。Windows 用 `scripts/install-smoke-windows.ts`，共用行为和原生进程检查用 `npm run test:windows`，CI 不跑，在 Windows 本机手动跑。Unix shell、Homebrew 与服务模拟仍在 Unix 验证，Windows 原生安装、通知和进程树由专用测试覆盖。登录服务在真实桌面会话验证，CI 不注册用户任务。

@@ -491,7 +491,7 @@ Webhook 通道的 `config.json` 配置使用 `use: "webhook"`、`url` 和 `platf
 | `docs/`                                                  | 通信协议、插件开发说明与架构图                                          |
 | `tests/`                                                 | 日常行为测试及测试辅助代码                                              |
 | `sim/`                                                   | 固定种子模拟、有界穷举、强杀与变异                                      |
-| `scripts/`、`.github/workflows/`                         | 性能与真机验证、安装冒烟和跨平台 CI                                     |
+| `scripts/`、`.github/workflows/`                         | 性能与真机验证、安装冒烟和 Linux CI                                      |
 
 现成场景与内置插件的入口见 [README](../README.md#拿来即用的场景模板)，开发模板见[写插件](plugins.md)。插件文件名仍使用协议中的 `source.ts`，对应面向用户的“事件插件”。
 

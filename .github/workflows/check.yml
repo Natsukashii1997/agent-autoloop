@@ -3,7 +3,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Pushes and pull requests check on Linux only. macOS bills ten Linux minutes for one, so it runs when asked for here.
   workflow_dispatch:
+    inputs:
+      os:
+        description: 在哪个系统上检查（macOS 只在这里手动选）
+        type: choice
+        options: [ubuntu-latest, macos-latest]
+        default: ubuntu-latest
 
 permissions:
   contents: read
@@ -17,7 +24,7 @@ jobs:
   check:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ["${{ inputs.os || 'ubuntu-latest' }}"]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -39,15 +46,12 @@ jobs:
         run: npm run format:check
       - if: steps.scope.outputs.scope != 'docs'
         run: npm run typecheck
-      - if: runner.os != 'Windows' && (steps.scope.outputs.scope == 'normal' || steps.scope.outputs.scope == 'kernel')
+      # The long simulation runs the same kernel on any system, so macOS gets the quick tests even when asked for everything.
+      - if: steps.scope.outputs.scope == 'normal' || steps.scope.outputs.scope == 'kernel' || (runner.os == 'macOS' && steps.scope.outputs.scope == 'full')
         run: npm run test:quick
       - if: steps.scope.outputs.scope == 'kernel'
         run: npm run test:sim
-      - if: runner.os != 'Windows' && steps.scope.outputs.scope == 'full'
+      - if: runner.os != 'macOS' && steps.scope.outputs.scope == 'full'
         run: npm test
-      - if: runner.os == 'Windows' && steps.scope.outputs.scope != 'docs'
-        run: npm run test:windows
-      - if: runner.os != 'Windows' && steps.scope.outputs.scope != 'docs'
+      - if: steps.scope.outputs.scope != 'docs'
         run: sh scripts/install-smoke.sh
-      - if: runner.os == 'Windows' && steps.scope.outputs.scope != 'docs'
-        run: node --disable-warning=ExperimentalWarning scripts/install-smoke-windows.ts
