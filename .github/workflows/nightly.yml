@@ -3,7 +3,8 @@ name: nightly
 run-name: ${{ inputs.commit && format('nightly {0}', inputs.commit) || 'nightly' }}
 on:
   schedule:
-    - cron: "23 18 * * *"
+    # Weekly, on Sunday: a daily run took most of the monthly Actions minutes of a private repository.
+    - cron: "23 18 * * 0"
   workflow_dispatch:
     inputs:
       commit:
@@ -38,11 +39,7 @@ jobs:
       - run: npm run test:deep
   # The install says Node 24 or newer, and every other check runs on 24.
   newest-node:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,11 +51,5 @@ jobs:
           node-version: latest
           package-manager-cache: false
       - run: npm ci
-      - if: runner.os != 'Windows'
-        run: npm run test:quick
-      - if: runner.os == 'Windows'
-        run: npm run test:windows
-      - if: runner.os != 'Windows'
-        run: sh scripts/install-smoke.sh
-      - if: runner.os == 'Windows'
-        run: node --disable-warning=ExperimentalWarning scripts/install-smoke-windows.ts
+      - run: npm run test:quick
+      - run: sh scripts/install-smoke.sh
