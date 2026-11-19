@@ -15,10 +15,13 @@ mkdirSync(directory, { recursive: true });
 
 async function exercise(mode: string, ref: string | null = null) {
   const folder = mkdtempSync(join(directory, "feishu-security-"));
-  const program = join(folder, "fake-lark");
+  // Windows doesn't read a #! line: there the stand-in is a script behind a .cmd shim, which is how npm ships lark-cli.
+  const windows = process.platform === "win32";
+  const program = join(folder, windows ? "fake-lark.cmd" : "fake-lark");
+  if (windows) writeFileSync(program, '@ECHO off\r\nnode "%~dp0fake-lark.mjs" %*\r\n');
   writeFileSync(
-    program,
-    `#!${process.execPath}
+    windows ? join(folder, "fake-lark.mjs") : program,
+    `${windows ? "" : `#!${process.execPath}`}
 const mode = ${JSON.stringify(mode)};
 const output = ${JSON.stringify(OUTPUT)};
 const args = process.argv.slice(2);
@@ -138,7 +141,8 @@ for (const [mode, name] of [
     const failure = String(observed.failures[0][2]);
     assert.match(failure, /im \+messages-send/);
     if (mode === "json") assert.match(failure, /code=99991663/);
-    if (mode === "signal") assert.match(failure, /signal=SIGTERM/);
+    // Windows has no signals: a program that ends itself there is seen as one that left with a code.
+    if (mode === "signal" && process.platform !== "win32") assert.match(failure, /signal=SIGTERM/);
   });
 }
 

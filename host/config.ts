@@ -50,8 +50,23 @@ export function writeConfig(config: Config) {
   const temporary = `${CONFIG_FILE}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    renameSync(temporary, CONFIG_FILE);
+    publish(temporary);
   } finally {
     rmSync(temporary, { force: true });
+  }
+}
+
+/** Puts the finished file in config.json's place. Windows refuses the rename while another writer is putting its own
+ * there or a reader has the file open; it is free again within moments, so that is waited out rather than failed. */
+function publish(temporary: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return renameSync(temporary, CONFIG_FILE);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const busy = process.platform === "win32" && (code === "EPERM" || code === "EACCES" || code === "EBUSY");
+      if (!busy || attempt >= 200) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 + Math.random() * 20);
+    }
   }
 }
