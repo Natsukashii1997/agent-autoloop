@@ -1,4 +1,47 @@
-# 给改这个仓库的 Agent
+# agent-autoloop 协作约定（Codex / Claude 必读）
+
+Agent 自动化中台：收事件、按规则派给 Agent、在通道里问人、记下每一步。这是常浩自己的项目，自己深度开发、自己使用；代码源自 KKKKhazix/agent-autoloop（见 [NOTICE](NOTICE)），2026-11-20 起不再与上游同步。进入顺序：本文件 → [CURRENT.md](CURRENT.md)（当前状态与唯一下一步）。设计以 [docs/protocol.md](docs/protocol.md) 和[架构图](docs/architecture.svg)为准。所有面向用户的文字用简体中文。本文件前半是入口和导航，后半「维护约定」起是这个仓库原有的开发规矩，照常适用。
+
+## 做什么事之前读哪份
+
+| 要做的事 | 先读 |
+|---|---|
+| 改协议、内核、插件约定 | [docs/protocol.md](docs/protocol.md)、[docs/state-machines.md](docs/state-machines.md)、[docs/plugins.md](docs/plugins.md)，再看下面「维护约定」 |
+| 排障、改脚本、装 launchd 或定时任务 | 先 `grep -n 关键词 docs/LESSONS.md`，再搜全局坑 `/Users/nat/Documents/ChatGPT/个人/work/agent-kit/LESSONS.md` |
+| 开需求、拆任务、实现、审查 | 下面「Agent skills」一节 |
+| 写交接、验收别人的交接 | [docs/templates/handoff.md](docs/templates/handoff.md) 骨架；[OPERATIONS](docs/OPERATIONS.md)「交接写法」「报告与验收」 |
+| 改命令行输出、通知文案、配置格式，或判断某处算不算已定 | [docs/DECIDED.md](docs/DECIDED.md) 已定内容登记表 |
+
+## 运行
+
+```sh
+npm ci                                   # 先装开发依赖（类型、格式检查）
+npm run format:check && npm run typecheck && npm run test:quick   # 快速检查，约 2 分钟
+npm test                                 # 全量，含 20 万步模拟与穷举，见「怎么改」
+node --test tests/*.test.mjs             # 交接格式 + 通用规则 + 钩子（含自测）
+node scripts/check-rules.mjs             # 只跑通用规则检查
+git config core.hooksPath scripts/hooks  # 装提交、推送前的必经检查（每个克隆、每台电脑各一次；不用 --no-verify 绕过）
+```
+
+推送前钩子跑规则检查、格式、类型、快速测试和 `.mjs` 测试，不过就不推；全量 `npm test` 不在钩子里，按「怎么改」在合并前跑。`main` 有分支保护，合并前必须通过 `check (ubuntu-latest)`。
+
+## Agent skills
+
+开发流程用 Matt Pocock skills（`~/.agents/skills/`）：大活走 `to-spec` → `to-tickets` → `implement` / `tdd` → `code-review` → PR；小改（一张 issue、一天内做完）跳过 `to-spec`。Claude 用 `/技能名`，Codex 用 `$技能名`；这几个技能只在点名时加载，不会自动触发。
+
+- Issue tracker：需求、规格与任务用本仓库 GitHub Issues，见 `docs/agents/issue-tracker.md`。
+- Triage labels：五个默认分流标签，见 `docs/agents/triage-labels.md`。
+- Domain docs：single-context，根目录 `GLOSSARY.md` 与 `docs/adr/`，用到时再建，见 `docs/agents/domain.md`。
+
+改动怎么走、分支怎么起名、交接写在哪、怎么合并：见 `/Users/nat/Documents/ChatGPT/个人/work/agent-kit/工程流程.md`。
+
+## 证据与交接
+
+- 验证用的备份、日志等证据放 `~/Library/Application Support/agent-autoloop/evidence/`，不放 `/tmp`（全局坑 G-01）；私人数据、真实配置和完整日志不进仓库。本机中台的数据目录是 `~/.agent-autoloop`，测试一律用临时 `AGENT_AUTOLOOP_HOME`（见「验证范围」）。
+- 新增依赖先改 `scripts/check-rules.mjs` 的 `ALLOWED_DEPS`，并在交接里说明理由（`check-rules` 会查；本项目没有运行时依赖，见「原则」）。
+- 每轮完成后，在 CURRENT.md 顶部新增一节（旧节保留在下面，过长时归档到 `docs/history/`），骨架照抄 [docs/templates/handoff.md](docs/templates/handoff.md)；`tests/handoff-format.test.mjs` 会检查顶部一节有没有日期、「时间：开工」「测试：」「验证环境：」「外部前提与实测：」「本轮新坑：」五行，新坑编号在 LESSONS 里要存在。每一行怎么写、报告与验收的防伪造五条见 [OPERATIONS](docs/OPERATIONS.md)「交接写法」「报告与验收」；没做就写「未做」。
+
+## 维护约定
 
 先读 [docs/protocol.md](docs/protocol.md) 和 [架构图](docs/architecture.svg)：它们说明最终实现。
 
