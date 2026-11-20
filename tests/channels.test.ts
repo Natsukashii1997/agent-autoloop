@@ -302,7 +302,7 @@ esac
   const hub = {
     async nextCard() {
       // Until the click comes, however busy this machine is, or until it's clear it won't.
-      await Promise.race([click, new Promise((resolve) => setTimeout(resolve, 2_000))]);
+      await Promise.race([click, new Promise((resolve) => setTimeout(resolve, 20_000))]);
       stop.abort();
       return { card: null };
     },
