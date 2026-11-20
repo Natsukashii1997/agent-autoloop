@@ -301,6 +301,7 @@ GET /v1/cards/next?wait=50    Authorization: Bearer <通道的密钥>
 - 发不出去：`POST /v1/cards/56/failed { "version": 2, "error": "…" }`。第一次发送隔得越来越久地重试，一小时后放弃（卡片还开着，`agent-autoloop status` 看得到）；通道一直没来领不算在内。
 - 还没送达就已经解决的卡片不再打扰你；仅告知的 `fyi` 通知在创建后的 24 小时内仍可投递。
 - 你点了：`POST /v1/cards/56/answer { "choice": 1, "by": "ou_xxx", "ref": "om_xxx" }`。只有第一次算数，`by` 要在这个通道的 `answerers` 里，`ref` 要和送达的那条一致。普通通知有一个“已处理”按钮，点了就结案；也可以带 `text` 写一句处理说明，结案时存进卡片的 `answer`，卡面和 `/v1/state` 都看得到。仅告知的 `fyi` 通知没有按钮。
+- 回答可以带上看到的版本：`{ "choice": 1, "by": "ou_xxx", "ref": "om_xxx", "version": 2 }`。`version` 是领到这张卡片时的 `version`，可以不带。带了、和卡片现在的版本不一致，返回 409，这次回答不算数：不记决定、不记回答事件、不叫醒 Agent，卡片照旧开着。不是正整数返回 400。卡片已经答过或结案的，带哪一版都照旧返回 `changed: false`（已处理过），不算版本不对。回答人和 `ref` 先核对，没过的照旧是 401。不带 `version` 的和以前完全一样，自带的飞书通道、卡片链接、命令行和 MCP 都不带。老中台不认识 `version`，会当没带一样照答：要靠它把关的，先升中台。
 
 最小的通道只要十几行：领卡片、发文字和 `link`、报告。`link` 只给配了 `"links": true` 的通道，其他通道这里是 `null`。它打开一个不跑脚本的普通表单页，这张卡片的文字和按钮都在上面，谁拿到链接谁就能答，从卡片创建起 7 天内有效，过期后也不再显示卡片内容，适合只会发文字的群机器人、邮件。能发按钮、能收回调的通道（比如飞书）用按钮，身份由平台核验，更安全。一台电脑上用时 `link` 是本机地址，手机打不开，要手机批请把中台放到有公网地址的机器上，并配好 `publicUrl`。
 
@@ -315,7 +316,7 @@ POST /v1/cards/56/resolve   { "reason": "不用决定了，因为……" }
 POST /v1/runs/12/cancel     {}
 ```
 
-`agent-autoloop status`、`answer`、`resolve`、`stop` 就是这几个请求。
+`agent-autoloop status`、`answer`、`resolve`、`stop` 就是这几个请求。本人回答也可以带 `version`（`/v1/state` 里这张卡片的 `version`），规则和通道的一样：对不上返回 409，不带照旧。
 
 `channels` 里的 `online` 只说明通道程序还在来领卡片，不说明卡片送到了：最近一张卡片没送到时，这个通道多一项 `lastFailure`（`card`、`tries`、通道报的 `error`，`givenUp` 表示试满了一小时、已经放弃；卡片在送到前被结掉也不会再发），送到了或还没发过就没有这一项，`agent-autoloop doctor` 照它提醒。
 

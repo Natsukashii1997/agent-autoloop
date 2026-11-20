@@ -326,6 +326,10 @@
         "ref": {
           "type": "string",
           "maxLength": 500
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [],

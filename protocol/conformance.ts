@@ -101,6 +101,7 @@ export async function conformance(base: string, config: Probe, request: typeof f
     ask: [
       { title: `选择 ${tag}`, text: "选择一个", options: ["甲", "乙"], key: tag },
       { title: `另一个 ${tag}`, text: "核实后关闭", options: ["甲", "乙"], key: `other-${tag}` },
+      { title: `带版本 ${tag}`, text: "带着看到的版本回答", options: ["甲", "乙"], key: `seen-${tag}` },
     ],
     resolve: [{ card: 99999999, reason: "越界" }],
   };
@@ -118,14 +119,22 @@ export async function conformance(base: string, config: Probe, request: typeof f
     cards.push(card);
     await call(`/v1/cards/${card.id}/delivered`, keys.channel, { version: card.version, ref: `probe-${card.id}` });
   }
-  const [card, other] = cards.filter(({ kind, title }) => kind === "ask" && title.endsWith(tag));
-  assert.ok(card && other);
+  const [card, other, versioned] = cards.filter(({ kind, title }) => kind === "ask" && title.endsWith(tag));
+  assert.ok(card && other && versioned);
   const answer = { choice: 0, by: config.answerer, ref: `probe-${card.id}` };
   await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, by: "not-allowed" }, 401);
   await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, ref: "wrong" }, 401);
   await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, choice: 99 }, 400);
   assert.equal((await call(`/v1/cards/${card.id}/answer`, keys.channel, answer)).changed, true);
   assert.equal((await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, choice: 1 })).changed, false);
+  // An answer may say which version of the card it saw: another version is refused, at the channel's door and the owner's.
+  const seen = { ...answer, ref: `probe-${versioned.id}`, version: versioned.version };
+  await call(`/v1/cards/${versioned.id}/answer`, keys.channel, { ...seen, version: seen.version + 1 }, 409, "error");
+  await call(`/v1/cards/${versioned.id}/answer`, keys.channel, { ...seen, version: 0 }, 400);
+  await call(`/v1/cards/${versioned.id}/answer`, keys.owner, { choice: 0, version: seen.version + 1 }, 409, "error");
+  assert.equal((await call(`/v1/cards/${versioned.id}/answer`, keys.channel, seen)).changed, true);
+  // Handled already is what a late answer is told, whichever version it saw.
+  assert.equal((await call(`/v1/cards/${versioned.id}/answer`, keys.channel, { ...seen, choice: 1 })).changed, false);
   await call(`/v1/cards/${other.id}/resolve`, keys.owner, { reason: " " }, 400);
   assert.equal((await call(`/v1/cards/${other.id}/resolve`, keys.owner, { reason: "已核实" })).changed, true);
   assert.equal((await call(`/v1/cards/${other.id}/answer`, keys.owner, { choice: 0 })).changed, false);

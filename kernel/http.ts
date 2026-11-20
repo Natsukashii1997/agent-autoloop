@@ -202,7 +202,8 @@ async function cardAction(call: Call, id: number, action: string) {
   }
   if (action === "answer") {
     const who = channel ? { by: given?.by, ref: given?.ref, channel } : { by: "本人" };
-    return json(act(call, "answer", id, { choice: given?.choice, text: given?.text, ...who }));
+    const said = { choice: given?.choice, text: given?.text, version: given?.version };
+    return json(act(call, "answer", id, { ...said, ...who }));
   }
   if (!Number.isInteger(given?.version)) throw new InputError("要说明是哪个版本");
   const ref = typeof given.ref === "string" ? given.ref : null;
