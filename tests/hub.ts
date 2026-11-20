@@ -47,6 +47,8 @@ export const delivered = (channel: string, id: number, version: number, ref: str
   execute("delivered", [channel, id, version, ref], now);
 export const failed = (channel: string, id: number, version: number, error: string, now = Date.now()) =>
   execute("failed", [channel, id, version, error], now);
+export const redeliver = (id: number, now = Date.now()): { changed: boolean; channels: string[] } =>
+  execute("redeliver", [id], now);
 export const removeKey = (kind: KeyKind, name: string) => execute("removeKey", [kind, name]) as boolean;
 
 /** Empties a table to reset a fixture: no fact says so, which nothing that runs for real may do. */

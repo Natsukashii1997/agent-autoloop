@@ -564,16 +564,28 @@ function reachesChannel(draft: Draft, card: Row, channel: string) {
   return !reach || reach.includes(channel);
 }
 
+/** Whether a channel still has something of this card to send: a settled card that never got through no longer bothers anyone. */
+function worthSending(card: Row, delivery: Row, now: number) {
+  const recentNote = card.fyi && Date.parse(card.created_at) >= now - 24 * 60 * MINUTE;
+  return card.state === "open" || delivery.ref !== null || recentNote;
+}
+
+/** Channels that gave up on a card start on it again from the first try; a message already sent stays the one to change. */
+function tryAgain(draft: Draft, card: number, which: (delivery: Row) => boolean = () => true) {
+  const givenUp = rows(draft.view, "deliveries", { card_id: card, given_up: 1 }).filter(which);
+  for (const { channel } of givenUp) put(draft, "deliveries", `${card}:${channel}`, { given_up: 0, ...NOT_TRYING });
+  return givenUp.map(({ channel }) => channel as string);
+}
+
 function nextCard(draft: Draft, channel: string) {
   const { now } = draft;
   for (const card of draft.view.deliveryCandidates(channel, now)) {
     if (!reachesChannel(draft, card, channel)) continue;
     const key = `${card.id}:${channel}`;
     const delivery = draft.view.get("deliveries", key) ?? NOT_DELIVERED;
-    const recentNote = card.fyi && Date.parse(card.created_at) >= now - 24 * 60 * MINUTE;
-    const worthSending = card.state === "open" || delivery.ref !== null || recentNote;
     const resting = delivery.not_before && Date.parse(delivery.not_before) > now;
-    if (card.quiet || delivery.version >= card.version || delivery.given_up || resting || !worthSending) continue;
+    if (card.quiet || delivery.version >= card.version || delivery.given_up || resting) continue;
+    if (!worthSending(card, delivery, now)) continue;
     const firstTry = delivery.first_try_at;
     if (delivery.tries >= RESEND_AT.length || (firstTry && now - Date.parse(firstTry) > RESEND_WINDOW)) {
       put(draft, "deliveries", key, { given_up: 1 });
@@ -771,11 +783,7 @@ const HANDLERS: Record<string, (draft: Draft, ...args: any[]) => unknown> = {
     const told = createCard(draft, { key, title, text, kind: "notice", fyi: true, once: true });
     if (!told.duplicate) return told;
     // Said again after every channel gave up on it: it gets another go.
-    const givenUp = rows(draft.view, "deliveries", { card_id: told.card, given_up: 1 });
-    for (const { card_id, channel } of givenUp) {
-      put(draft, "deliveries", `${card_id}:${channel}`, { given_up: 0, ...NOT_TRYING });
-    }
-    if (!givenUp.length) return told;
+    if (!tryAgain(draft, told.card).length) return told;
     put(draft, "cards", told.card, { text, created_at: draft.at });
     return { ...told, duplicate: false };
   },
@@ -822,6 +830,16 @@ const HANDLERS: Record<string, (draft: Draft, ...args: any[]) => unknown> = {
     return true;
   },
   answer,
+  /** The owner's word that a card be sent again where every try was given up on: nothing else brings a question back. */
+  redeliver(draft, id) {
+    const card = draft.view.get("cards", id);
+    if (!card) throw new NotFound("没有这张卡片");
+    // Only where it would go out: saying a card is being sent again that no channel will send would leave the owner waiting.
+    const sends = (delivery: Row) =>
+      reachesChannel(draft, card, delivery.channel) && worthSending(card, delivery, draft.now);
+    const channels = tryAgain(draft, id, sends);
+    return { changed: channels.length > 0, channels };
+  },
   nextCard,
   delivered(draft, channel, id, version, ref) {
     const card = draft.view.get("cards", id);
