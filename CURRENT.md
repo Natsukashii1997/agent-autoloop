@@ -9,7 +9,7 @@
   - 新建 `NOTICE`（出处 v1.8.5 `d3a44ca`，MIT，不再同步上游）、`CURRENT.md`（本文件）、`docs/LESSONS.md`（L-01～L-06，从本月返工提炼）、`docs/DECIDED.md`（登记 11-20 改定）、`docs/OPERATIONS.md`、`docs/templates/handoff.md`、`docs/agents/`（issue 看板、分流标签、领域文档）、`scripts/check-rules.mjs` 与 `tests/check-rules.test.mjs`、`scripts/hooks/`（commit-msg、pre-push）与 `tests/hooks.test.mjs`、`tests/handoff-format.test.mjs`。这些都来自 project-starter 0.5.0（my-skills `7930db2`），网页基线截图三件不适用，没铺。
   - `AGENTS.md`：最前面加入口、导航表、运行、Agent skills、证据与交接；原来的开发规矩放在「维护约定」下面，原文没改。
   - `scripts/check-rules.mjs` 按本项目改：扫描目录改成 `bin cli host kernel plugins protocol worker`；依赖白名单改成 `@types/node`、`prettier`、`typescript`；不用骨架的「只监听 127.0.0.1」「入口校验来源」两条（中台可按配置部署到服务器，入口靠密钥鉴权）；G-08 那条不报文件里赋过值的变量（原来在 `scripts/ci-scope.sh`、`scripts/install-smoke.sh` 误报 4 处）。`tests/check-rules.test.mjs` 的样本跟着改。
-  - `scripts/hooks/pre-push`：测试命令改成 `npm run format:check && npm run typecheck && npm run test:quick && node --test tests/*.test.mjs`。
+  - `scripts/hooks/pre-push`：测试命令改成 `npm run format:check && npm run typecheck && npm run test:quick && node --test tests/*.test.mjs`；另外把 git 放进 PATH 的 libexec 和 `GIT_EXEC_PATH` 去掉（第一次真推时 3 条安装测试只在钩子里失败，见 L-07），`tests/hooks.test.mjs` 加一条复现用例。
   - `tests/channels.test.ts` 第 305 行：飞书 U+2028 用例等点击的上限从 2 秒改为 20 秒（全量并发跑时两次卡在 2 秒失败，会拦住每次推送，见 L-06）。
   - `.github/workflows/check.yml`：每次都先跑 `node scripts/check-rules.mjs && node --test tests/*.test.mjs`（文档改动也跑，因为交接格式和 LESSONS 检查读的就是文档）。
 - 测试：`npm run format:check && npm run typecheck` 退出码 0；`npm run test:quick` 原样结果 `ℹ tests 808` / `ℹ pass 787` / `ℹ fail 0` / `ℹ skipped 21`（改上限前 `ℹ fail 1`）；`node --test tests/*.test.mjs` `ℹ pass 11` / `ℹ fail 0`；`node scripts/check-rules.mjs` 输出「通用规则检查通过」。日志在 `~/Library/Application Support/agent-autoloop/evidence/2026-11-20-starter/`。
@@ -18,4 +18,4 @@
 - 截图：无。
 - 发布与回读：无需发布；本机中台仍是 v1.8.5 `d3a44ca`，没动。
 - 与授权不一致之处、遗留问题、范围外发现：批 4 未做：`cli/update.ts`、`install.sh`、`install.ps1` 的 `PUBLISHED`、`package.json` 的 repository、README、INSTALL、SECURITY、CONTRIBUTING、issue 模板、`skills/agent-autoloop/SKILL.md` 里的链接仍指向上游，AGENTS「社区贡献」「怎么发版」两节仍是上游写法，这些都待常浩定。远端还留着未合并的 `codex/audit-fix-1118`（#1，安全审计修复，关闭未合并）。
-- 本轮新坑：L-06。
+- 本轮新坑：L-06、L-07。

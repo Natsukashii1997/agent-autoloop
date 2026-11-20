@@ -65,3 +65,11 @@
 - 正确做法：等真实事件的测试写成「事件一到就结束，否则等到足够长的上限」，上限按机器最忙时估，不按单跑的耗时估；推送前钩子因为计时用例失败时，先单独重跑那一条确认，不用 `--no-verify` 绕过。
 - 证据：dt@`f293b9b` 上本机快速测试 808 条、1 条失败（2026-11-20 两次）；上限改为 20 秒后全量 787 过、0 失败，这一条 261ms（`~/Library/Application Support/agent-autoloop/evidence/2026-11-20-starter/test-quick-2.log`）。同类：`git grep "setTimeout(resolve, " tests` 里「等事件或到上限」的写法只有这一处。
 - 升级：〔提醒〕部分升级（2026-11-20）：这一条的上限已改为 20 秒；以后新写的计时用例没有机器检查。
+
+## L-07 安装测试在终端里都过，到推送前钩子里 3 条失败：git 把自己的 libexec 放进了 PATH（2026-11-20）
+
+- 现象：第一次带钩子推送，`tests/releases.test.ts` 的 3 条安装测试失败，报 `git-upload-pack: command not found`；同一提交在终端里跑 `npm run test:quick` 全过。
+- 根因：git 运行钩子时把 `$(git --exec-path)`（本机是 `/Library/Developer/CommandLineTools/usr/libexec/git-core`）放在 PATH 最前面，并设 `GIT_EXEC_PATH`。测试用 `command -v git` 找 git，在钩子里找到的是 libexec 里那份；测试换了 PATH 再跑它，它按自己所在位置推算 libexec，找不到 `git-upload-pack`。和全局 G-46 同属「钩子里的环境和终端不一样」。
+- 正确做法：钩子在跑检查前，除了 `unset $(git rev-parse --local-env-vars)`，还要把 exec-path 从 PATH 开头去掉、`unset GIT_EXEC_PATH`；钩子改动的验收必须真推一次，不能只在终端里跑测试命令（G-47）。
+- 证据：`~/Library/Application Support/agent-autoloop/evidence/2026-11-20-starter/push.log`（`ℹ fail 3`）；复现用例 `tests/hooks.test.mjs`「测试命令找到的 git 和终端里一样」，改前红、改后绿。
+- 升级：〔机检〕已升级（2026-11-20，本 PR）：`scripts/hooks/pre-push` 去掉 exec-path 和 `GIT_EXEC_PATH`，`tests/hooks.test.mjs` 的复现用例随推送前钩子必跑。起步骨架（my-skills project-starter）和其他 8 个仓库的同一钩子没改，提议同步、并提升为全局坑，待批。
