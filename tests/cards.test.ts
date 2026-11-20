@@ -381,6 +381,8 @@ test("an answer that says which version it saw counts only on that version; sayi
   const closed = asked(2).id;
   resolve(closed, "问题自己好了", "owner", at(1));
   assert.deepEqual(answer(closed, { choice: 0, by: "本人", version: 1 }, at(2)), { changed: false, state: "closed" });
+  // A version that isn't one is the caller's mistake, and it's told so even then.
+  assert.throws(() => answer(closed, { choice: 0, by: "本人", version: 0 }, at(2)), InputError);
   // A notice is closed the same way, and nothing said about the version is still an answer.
   clean();
   const notice = tell("source:app:version", "应用", "看一眼", at(0)).card;
