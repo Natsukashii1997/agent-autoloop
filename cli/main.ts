@@ -45,6 +45,7 @@ const HELP = `Agent 自动化中台
   agent-autoloop answer <卡片> [序号] [--text 别的想法]
                                     回答一张卡片；通知不用写序号
   agent-autoloop resolve <卡片> <结果>   这件事不用决定了，写一句结果
+  agent-autoloop redeliver <卡片>        通道试满一小时放弃了的卡片，重新送
   agent-autoloop doctor                  查哪里没配好
   agent-autoloop check [文件]            检查规则文件，不碰中台；不写文件就查 rules.json
   agent-autoloop rules explain [文件]    按本机 rules.json（或指定草稿）说明生效的规则、Agent、通道和下次定时
@@ -155,6 +156,7 @@ rules.json 里这个定时任务要写 cwd；你答了，中台叫醒它的 Agen
     usage: "用法：agent-autoloop pause <规则> [--reason 原因] [--until 时间]",
   },
   // Only its first word is read as anything: the rest is a result in someone's own words, dashes and all.
+  redeliver: { flags: [], usage: "用法：agent-autoloop redeliver <卡片>" },
   resolve: { flags: [], usage: "用法：agent-autoloop resolve <卡片> <结果>" },
   restore: { flags: ["yes"], usage: RESTORE_USAGE },
   resume: { flags: [], usage: "用法：agent-autoloop resume <规则>" },
@@ -521,6 +523,17 @@ async function resolve(args: string[]) {
   if (!Number.isInteger(card) || card < 1 || !words.length) return fail(TAKES.resolve.usage);
   const { changed } = await ownerClient().resolve(card, words.join(" "));
   console.log(changed ? "结案了。" : "这张卡片已经处理过了，这次没有改动。");
+}
+
+async function redeliver(args: string[]) {
+  const card = Number(args[0]);
+  if (!Number.isInteger(card) || card < 1 || args.length !== 1) return fail(TAKES.redeliver.usage);
+  const { changed, channels } = await ownerClient().redeliver(card);
+  console.log(
+    changed
+      ? `重新送了：${channels.join("、")}。次数从头算，通道下次来领就发；再试满一小时还送不到，会再放弃。`
+      : "这张卡片没有放弃送达的通道，这次没有改动。",
+  );
 }
 
 async function pause(args: string[]) {
@@ -922,6 +935,7 @@ const commands: Record<string, () => unknown> = {
   conformance: () => checkConformance(args),
   answer: () => answer(args),
   resolve: () => resolve(args),
+  redeliver: () => redeliver(args),
   doctor,
   check: () => check(args),
   rules: () => rulesCommand(args),

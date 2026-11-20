@@ -9,8 +9,10 @@
 // webhook's secret leaks into anything it returns; the owner's key opens the worker's door; a page other than a card's exists;
 // a card's link still answers or shows the card after its week, or sends you to a command that doesn't work; a link opens
 // when no channel takes links; an answer that names a version of the card it didn't see counts, at the channel's door or
-// the owner's.
+// the owner's; a card every try gave up on is sent again by a channel, a worker, a source or nobody at all, or the
+// owner's command for it doesn't reach the door or says nothing useful.
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -33,7 +35,7 @@ export default function ({ headers, body, secret }) {
 );
 process.env.AGENT_AUTOLOOP_SECRET_HOOKS = "hook-secret";
 const { serve } = await import("../host/http.ts");
-const { addKey, createCard, getView, reloadRules, view } = await import("./hub.ts");
+const { addKey, createCard, failed, getView, nextCard, reloadRules, view } = await import("./hub.ts");
 const { all, one } = await import("./hub.ts");
 
 const keys = {
@@ -466,4 +468,78 @@ test("someone else's webhook goes through its source's adapter: signed, or not t
 test("there's no other page: what's going on is read through the doors", async () => {
   for (const path of ["/", "/index.html", "/app.js", "/style.css", "/../package.json"])
     assert.equal((await call(path)).status, 404, path);
+});
+
+test("only the owner's key sends a card again once its channel gave up, and the command line does the same", async () => {
+  await call("/v1/events", { key: keys.app, body: note(70) });
+  const job = (await call("/v1/work?claim=c-70&wait=0", { key: keys.w1 })).json.job;
+  const ask = [{ title: "重新送", text: "选一个", options: ["甲", "乙"], key: "redeliver" }];
+  await call(`/v1/runs/${job.run}/result`, { key: job.token, body: { outcome: "done", ask } });
+  const id = one<{ id: number }>("SELECT id FROM cards WHERE title = '重新送'")!.id;
+  // Every try of the hour fails, at moments of their own: the door's clock can't be wound on.
+  const start = Date.now() - 60 * 60_000;
+  const taken = (minute: number) => {
+    const now = start + minute * 60_000;
+    let given = nextCard("chat", now);
+    while (given && given.id !== id) given = nextCard("chat", now);
+    return given;
+  };
+  for (const minute of [0, 1, 3, 7, 15, 25, 35, 45, 55]) {
+    failed("chat", id, taken(minute)!.version, "挂了", start + minute * 60_000);
+  }
+  const givenUp = () =>
+    one<{ given_up: number }>("SELECT given_up FROM deliveries WHERE card_id = ? AND channel = 'chat'", [id])!.given_up;
+  assert.equal(givenUp(), 1);
+
+  const url = `/v1/cards/${id}/redeliver`;
+  for (const key of [undefined, "made-up", keys.chat, keys.w1, keys.app]) {
+    assert.equal((await call(url, { key, body: {} })).status, 401);
+  }
+  assert.equal(givenUp(), 1);
+  assert.equal((await call("/v1/cards/99999/redeliver", { key: keys.owner, body: {} })).status, 404);
+  const again = await call(url, { key: keys.owner, method: "POST" });
+  assert.deepEqual([again.status, again.json], [200, { changed: true, channels: ["chat"] }]);
+  assert.equal(givenUp(), 0);
+  const second = await call(url, { key: keys.owner, body: {} });
+  assert.deepEqual([second.status, second.json], [200, { changed: false, channels: [] }]);
+  let given: any;
+  for (;;) {
+    const { json } = await call("/v1/cards/next?wait=0", { key: keys.chat });
+    if (!json.card || json.card.id === id) {
+      given = json.card;
+      break;
+    }
+  }
+  assert.equal(given?.id, id, "the channel is handed it again");
+
+  // The command, as the owner types it, against this hub.
+  writeFileSync(join(home, "config.json"), JSON.stringify({ url: base, owner: keys.owner }));
+  const cli = (...args: string[]) =>
+    new Promise<{ status: number; stdout: string; stderr: string }>((resolve) => {
+      const program = ["--disable-warning=ExperimentalWarning", "bin/agent-autoloop.ts", ...args];
+      execFile(process.execPath, program, { cwd: join(import.meta.dirname, "..") }, (error, stdout, stderr) =>
+        resolve({ status: error ? Number(error.code ?? 1) : 0, stdout, stderr }),
+      );
+    });
+  let done = await cli("redeliver", String(id));
+  assert.equal(done.status, 0, done.stderr);
+  assert.match(done.stdout, /没有放弃送达的通道/);
+  // The try the door just handed out fails, and so does every later one of its hour.
+  const first = Date.now();
+  failed("chat", id, given.version, "又挂了", first);
+  for (const minute of [1, 3, 7, 15, 25, 35, 45, 55]) {
+    const now = first + minute * 60_000 + 1000;
+    failed("chat", id, taken((now - start) / 60_000)!.version, "又挂了", now);
+  }
+  assert.equal(givenUp(), 1);
+  done = await cli("redeliver", String(id));
+  assert.equal(done.status, 0, done.stderr);
+  assert.match(done.stdout, /重新送了：chat。/);
+  assert.equal(givenUp(), 0);
+  done = await cli("redeliver", "没有号");
+  assert.equal(done.status, 1);
+  assert.match(done.stderr, /用法：agent-autoloop redeliver/);
+  done = await cli("redeliver", "99999");
+  assert.equal(done.status, 1);
+  assert.match(done.stderr, /没有这张卡片/);
 });

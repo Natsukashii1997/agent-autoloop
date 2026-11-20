@@ -564,6 +564,13 @@ function reachesChannel(draft: Draft, card: Row, channel: string) {
   return !reach || reach.includes(channel);
 }
 
+/** Channels that gave up on a card start on it again from the first try; a message already sent stays the one to change. */
+function tryAgain(draft: Draft, card: number) {
+  const givenUp = rows(draft.view, "deliveries", { card_id: card, given_up: 1 });
+  for (const { channel } of givenUp) put(draft, "deliveries", `${card}:${channel}`, { given_up: 0, ...NOT_TRYING });
+  return givenUp.map(({ channel }) => channel as string);
+}
+
 function nextCard(draft: Draft, channel: string) {
   const { now } = draft;
   for (const card of draft.view.deliveryCandidates(channel, now)) {
@@ -771,11 +778,7 @@ const HANDLERS: Record<string, (draft: Draft, ...args: any[]) => unknown> = {
     const told = createCard(draft, { key, title, text, kind: "notice", fyi: true, once: true });
     if (!told.duplicate) return told;
     // Said again after every channel gave up on it: it gets another go.
-    const givenUp = rows(draft.view, "deliveries", { card_id: told.card, given_up: 1 });
-    for (const { card_id, channel } of givenUp) {
-      put(draft, "deliveries", `${card_id}:${channel}`, { given_up: 0, ...NOT_TRYING });
-    }
-    if (!givenUp.length) return told;
+    if (!tryAgain(draft, told.card).length) return told;
     put(draft, "cards", told.card, { text, created_at: draft.at });
     return { ...told, duplicate: false };
   },
@@ -822,6 +825,12 @@ const HANDLERS: Record<string, (draft: Draft, ...args: any[]) => unknown> = {
     return true;
   },
   answer,
+  /** The owner's word that a card be sent again where every try was given up on: nothing else brings a question back. */
+  redeliver(draft, id) {
+    if (!draft.view.get("cards", id)) throw new NotFound("没有这张卡片");
+    const channels = tryAgain(draft, id);
+    return { changed: channels.length > 0, channels };
+  },
   nextCard,
   delivered(draft, channel, id, version, ref) {
     const card = draft.view.get("cards", id);

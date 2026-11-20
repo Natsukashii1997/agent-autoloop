@@ -128,6 +128,7 @@ const EVERY_OTHER_COMMAND = [
   "join",
   "key",
   "mcp",
+  "redeliver",
   "restore",
   "rules",
   "service",

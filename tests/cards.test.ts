@@ -27,6 +27,9 @@
 // The answers material carries the chosen text, or a 0-based choice gets read as the first option (issue #197: an Agent
 // reported 绿色 as 蓝色).
 // An answer that says which version of the card it saw lands on another version, or one that says nothing is turned away.
+// A question every try gave up on can never be sent again; sent again at the owner's word, it goes on counting from the
+// old tries and gives up at once, loses the message it already has and posts a second one, or touches a channel that
+// hadn't given up; asking for a card nothing gave up on writes a fact all the same.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { at, setup } from "./helpers.ts";
@@ -36,7 +39,8 @@ import { formatWhy } from "../cli/why.ts";
 setup("cards");
 const { ingest } = await import("./hub.ts");
 const { cancel, claimNext, execute, finish, heartbeat, started, sweep, why } = await import("./hub.ts");
-const { answer, resolve, nextCard, delivered, failed, tell, cardByToken, getView, stateOf } = await import("./hub.ts");
+const { answer, resolve, nextCard, delivered, failed, redeliver, tell } = await import("./hub.ts");
+const { cardByToken, getView, stateOf } = await import("./hub.ts");
 const { AuthError, Conflict, InputError, NotFound } = await import("../kernel/errors.ts");
 const { all, one, run } = await import("./storage.ts");
 
@@ -849,6 +853,66 @@ test("what only needed saying is told once per key; given up, it can be told aga
   );
   assert.equal(nextCard("chat", at(70))?.text, "周报（更新）");
   assert.equal(nextCard("plain", at(70))?.text, "周报（更新）");
+});
+
+test("a card its channels gave up on goes out again at the owner's word: from the first try, on the message it has", () => {
+  clean();
+  const tries = [0, 1, 3, 7, 15, 25, 35, 45, 55];
+  const delivery = (id: number, channel: string) =>
+    one<any>("SELECT * FROM deliveries WHERE card_id = ? AND channel = ?", [id, channel])!;
+  const { id } = asked(1, at(0));
+  for (const minute of tries) {
+    for (const channel of ["chat", "plain"]) {
+      failed(channel, id, nextCard(channel, at(minute))!.version, "挂了", at(minute));
+    }
+  }
+  assert.equal(nextCard("chat", at(500)), null, "given up");
+  assert.equal(nextCard("plain", at(500)), null, "given up");
+  assert.throws(() => redeliver(9999, at(600)), NotFound);
+  assert.deepEqual(
+    redeliver(id, at(600)),
+    { changed: true, channels: ["chat", "plain"] },
+    "every channel that gave up",
+  );
+  assert.deepEqual(
+    [delivery(id, "chat").given_up, delivery(id, "chat").tries, delivery(id, "chat").first_try_at],
+    [0, 0, null],
+  );
+  // One channel gets it through this time.
+  const sent = nextCard("plain", at(600))!;
+  assert.deepEqual([sent.id, sent.ref], [id, null]);
+  delivered("plain", id, sent.version, "p_1", at(600));
+  // On the other it's counted from the start: nine tries over the hour again, not given up at the first for being an
+  // hour past the old ones.
+  for (const minute of tries) {
+    const given = nextCard("chat", at(600 + minute));
+    assert.equal(given?.id, id, `try ${minute} minutes after sending again`);
+    failed("chat", id, given!.version, "还是挂", at(600 + minute));
+  }
+  assert.equal(nextCard("chat", at(700)), null, "and given up again after as many");
+  assert.equal(delivery(id, "chat").given_up, 1);
+
+  // Answered, the message that got through is to be changed. That fails for an hour: sent again, it's the same message.
+  answer(id, { choice: 0, by: "本人" }, at(700));
+  for (const minute of tries) {
+    failed("plain", id, nextCard("plain", at(700 + minute))!.version, "改不动", at(700 + minute));
+  }
+  assert.equal(nextCard("plain", at(800)), null, "the update is given up on too");
+  assert.deepEqual(redeliver(id, at(800)).channels, ["chat", "plain"]);
+  const update = nextCard("plain", at(800))!;
+  assert.deepEqual([update.id, update.ref, update.state], [id, "p_1", "decided"], "the message it already has");
+  delivered("plain", id, update.version, "p_1", at(800));
+
+  // Nothing has given up: there's nothing to send again, and no fact says anyone asked.
+  const settled = getView().seq;
+  assert.deepEqual(redeliver(id, at(801)), { changed: false, channels: [] });
+  const fresh = asked(2, at(802)).id;
+  nextCard("chat", at(802));
+  const trying = getView().seq;
+  assert.deepEqual(redeliver(fresh, at(802)), { changed: false, channels: [] }, "still being tried isn't given up");
+  assert.equal(delivery(fresh, "chat").tries, 1, "and its tries are left as they are");
+  assert.equal(getView().seq, trying, "asking writes no fact");
+  assert.ok(trying > settled);
 });
 
 test("what only needed saying goes stale: a channel coming back after a day doesn't get yesterday's", () => {
