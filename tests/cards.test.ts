@@ -29,7 +29,8 @@
 // An answer that says which version of the card it saw lands on another version, or one that says nothing is turned away.
 // A question every try gave up on can never be sent again; sent again at the owner's word, it goes on counting from the
 // old tries and gives up at once, loses the message it already has and posts a second one, or touches a channel that
-// hadn't given up; asking for a card nothing gave up on writes a fact all the same.
+// hadn't given up; asking for a card nothing gave up on writes a fact all the same; a card answered before any message
+// got through is said to be sent again, and never is.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { at, setup } from "./helpers.ts";
@@ -898,7 +899,8 @@ test("a card its channels gave up on goes out again at the owner's word: from th
     failed("plain", id, nextCard("plain", at(700 + minute))!.version, "改不动", at(700 + minute));
   }
   assert.equal(nextCard("plain", at(800)), null, "the update is given up on too");
-  assert.deepEqual(redeliver(id, at(800)).channels, ["chat", "plain"]);
+  // Only there: the other channel never got the question through, and has nothing of an answered one to send.
+  assert.deepEqual(redeliver(id, at(800)), { changed: true, channels: ["plain"] });
   const update = nextCard("plain", at(800))!;
   assert.deepEqual([update.id, update.ref, update.state], [id, "p_1", "decided"], "the message it already has");
   delivered("plain", id, update.version, "p_1", at(800));
@@ -913,6 +915,23 @@ test("a card its channels gave up on goes out again at the owner's word: from th
   assert.equal(delivery(fresh, "chat").tries, 1, "and its tries are left as they are");
   assert.equal(getView().seq, trying, "asking writes no fact");
   assert.ok(trying > settled);
+
+  // What a channel would no longer send isn't started again, nor said to be: a channel the card's rule no longer
+  // reaches, a card settled before any message got through.
+  clean();
+  const late = asked(3, at(0)).id;
+  for (const minute of tries) failed("chat", late, nextCard("chat", at(minute))!.version, "挂了", at(minute));
+  underRules(
+    (rules) => {
+      rules.rules.find((rule: { name: string }) => rule.name === "意见").channels = ["plain"];
+    },
+    () => assert.deepEqual(redeliver(late, at(61)), { changed: false, channels: [] }, "no longer its channel"),
+  );
+  answer(late, { choice: 0, by: "本人" }, at(62));
+  const answered = getView().seq;
+  assert.deepEqual(redeliver(late, at(63)), { changed: false, channels: [] }, "answered, with no message to change");
+  assert.equal(getView().seq, answered);
+  assert.equal(delivery(late, "chat").given_up, 1);
 });
 
 test("what only needed saying goes stale: a channel coming back after a day doesn't get yesterday's", () => {

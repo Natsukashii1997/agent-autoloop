@@ -523,7 +523,7 @@ test("only the owner's key sends a card again once its channel gave up, and the 
     });
   let done = await cli("redeliver", String(id));
   assert.equal(done.status, 0, done.stderr);
-  assert.match(done.stdout, /没有放弃送达的通道/);
+  assert.match(done.stdout, /没有要重新送的通道/);
   // The try the door just handed out fails, and so does every later one of its hour.
   const first = Date.now();
   failed("chat", id, given.version, "又挂了", first);

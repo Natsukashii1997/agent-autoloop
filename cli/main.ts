@@ -155,8 +155,8 @@ rules.json 里这个定时任务要写 cwd；你答了，中台叫醒它的 Agen
     flags: ["reason", "until"],
     usage: "用法：agent-autoloop pause <规则> [--reason 原因] [--until 时间]",
   },
-  // Only its first word is read as anything: the rest is a result in someone's own words, dashes and all.
   redeliver: { flags: [], usage: "用法：agent-autoloop redeliver <卡片>" },
+  // Only its first word is read as anything: the rest is a result in someone's own words, dashes and all.
   resolve: { flags: [], usage: "用法：agent-autoloop resolve <卡片> <结果>" },
   restore: { flags: ["yes"], usage: RESTORE_USAGE },
   resume: { flags: [], usage: "用法：agent-autoloop resume <规则>" },
@@ -532,7 +532,7 @@ async function redeliver(args: string[]) {
   console.log(
     changed
       ? `重新送了：${channels.join("、")}。次数从头算，通道下次来领就发；再试满一小时还送不到，会再放弃。`
-      : "这张卡片没有放弃送达的通道，这次没有改动。",
+      : "这张卡片没有要重新送的通道：没有通道放弃，或者卡片已经处理完、没有发出过的消息要改。这次没有改动。",
   );
 }
 
