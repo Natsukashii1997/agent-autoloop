@@ -1,10 +1,10 @@
 # 当前状态
 
-更新：2026-11-20。agent-autoloop 已转为常浩自己的项目。唯一下一步：常浩决定合不合 #8（回答核版本）和 #9（重新送）的两个 PR，先 #8 后 #9；合了之后升级本机中台另行单独问。此前挂着的另一件：常浩决定批 4（`agent-autoloop update`、一键安装和文档里的链接指向谁）。
+更新：2026-11-20。agent-autoloop 已转为常浩自己的项目。唯一下一步：常浩决定合不合 #11（重新送，对应 #9）；回答核版本（#8）已随 #10 合并。合了之后升级本机中台另行单独问。此前挂着的另一件：常浩决定批 4（`agent-autoloop update`、一键安装和文档里的链接指向谁）。
 
 ## 本人入口「重新送」：放弃送达的卡片一条命令恢复（2026-11-20，Claude，常浩在会话「数字分身｜框架对照与路径评审」回「按计划开工」；已提交、PR 未合并、无需发布）
 
-- 时间：开工 `2026-11-20 18:15`（这一批开工时没有单独跑 `date`；按批 A 那次 `date '+%T'` 输出 `18:14:46` 的进度检查之后才开始写批 B 的测试推定）。来由：数字分身「引擎自有后可解开的限制」第 2 项，本仓库 #9。卡片在一个通道上试满 9 次（约 57 分钟）就永久放弃，提问卡没有恢复入口。本分支接在 #8 的分支上（改同一批文件），#8 先合。
+- 时间：开工 `2026-11-20 18:15`（这一批开工时没有单独跑 `date`；按批 A 那次 `date '+%T'` 输出 `18:14:46` 的进度检查之后才开始写批 B 的测试推定）。来由：数字分身「引擎自有后可解开的限制」第 2 项，本仓库 #9。卡片在一个通道上试满 9 次（约 57 分钟）就永久放弃，提问卡没有恢复入口。本分支原来接在 #8 的分支上（改同一批文件）；#10 合并后已变基到 main `30f5a8e`。
 - 改了哪些文件：
   - `kernel/decide.ts`：加输入 `redeliver`。清零那几行从 `tell` 里抽成 `tryAgain`，两处共用；`nextCard` 里「还值不值得发」的判断抽成 `worthSending`，`redeliver` 用它和 `reachesChannel` 只挑还会发的放弃通道。`tell` 再说一遍照旧清全部。放弃的规则没动。
   - `kernel/http.ts`：`POST /v1/cards/<编号>/redeliver`，只认本人的密钥，不读请求内容。
@@ -12,15 +12,15 @@
   - `cli/main.ts`：帮助、参数表、`redeliver` 命令；`resolve` 的注释留在它上面。没加进 `cli/mcp.ts`。
   - `tests/cards.test.ts`、`tests/http.test.ts`（含真命令行子进程）、`tests/cli-flags.test.ts`、`tests/hub.ts`。
   - `docs/protocol.md`（通道、本人、谁能做什么）、`docs/state-machines.md`、`skills/agent-autoloop/SKILL.md`、`docs/DECIDED.md`。
-- 测试：先写的三处测试在实现前失败（`不认识的输入：redeliver` 等），实现后通过。在 `9240abe`（变基后是 `890800d`，内容相同）上：`npm run format:check`、`npm run typecheck` 退出码 0；`npm test` 原样结果 `ℹ tests 818` / `ℹ pass 797` / `ℹ fail 0` / `ℹ skipped 21`；`npm run test:nightly`（含 `test:deep` 和基准）`ℹ pass 2` / `ℹ fail 0`，`{"total":34,"killed":34,"survived":[],"invalid":[],"ratio":1}`，基准里 20 万步模拟跑完；`node --test tests/*.test.mjs` `ℹ pass 12` / `ℹ fail 0`；`node scripts/check-rules.mjs` 输出「通用规则检查通过」。之后的 `b4bd77c` 只改了命令行一句文案和协议文字，重跑 `tests/http.test.ts tests/cards.test.ts tests/cli-flags.test.ts` `ℹ pass 90` / `ℹ fail 0`，没有重跑全量。日志在 `~/Library/Application Support/agent-autoloop/evidence/2026-11-20-redeliver/`。加本节之后的检查结果见 PR。
+- 测试：先写的三处测试在实现前失败（`不认识的输入：redeliver` 等），实现后通过。在 `9240abe`（两次变基后是 `18dc210`，代码相同：变基前后整棵树逐字节一致）上：`npm run format:check`、`npm run typecheck` 退出码 0；`npm test` 原样结果 `ℹ tests 818` / `ℹ pass 797` / `ℹ fail 0` / `ℹ skipped 21`；`npm run test:nightly`（含 `test:deep` 和基准）`ℹ pass 2` / `ℹ fail 0`，`{"total":34,"killed":34,"survived":[],"invalid":[],"ratio":1}`，基准里 20 万步模拟跑完；`node --test tests/*.test.mjs` `ℹ pass 12` / `ℹ fail 0`；`node scripts/check-rules.mjs` 输出「通用规则检查通过」。之后的 `8ff129f` 只改了命令行一句文案和协议文字，重跑 `tests/http.test.ts tests/cards.test.ts tests/cli-flags.test.ts` `ℹ pass 90` / `ℹ fail 0`，没有重跑全量。日志在 `~/Library/Application Support/agent-autoloop/evidence/2026-11-20-redeliver/`。加本节之后的检查结果见 PR。
 - 验证环境：替身（测试夹具：临时 `AGENT_AUTOLOOP_HOME`、本机回环上的真 HTTP 服务、对着它跑的真命令行子进程、内存里的模拟）；未在真实环境验证：本机在跑的中台没升级、没碰，没有拿一张真的放弃了的卡片和真实通道试过重新送。
 - 外部前提与实测：无。「合盖睡一夜、醒来就超窗放弃」是读代码的推断，没有实测。
 - 截图：无。
 - 发布与回读：无需发布；本机中台仍是 v1.8.5 `d3a44ca`，没动。
-- 与授权不一致之处、遗留问题、范围外发现：授权内；有一处是实施时我收窄的，常浩没单独定过：重新送只重启还会发的放弃通道，不会发的（卡片已答完又从没送到过、仅告知过了一天、通道已不在卡片范围）不清也不报「重新送了」，否则命令会说在重新送、实际永远不发。独立审查两轮（没写这段代码的 Claude 子 agent，审的是 `fb52344` 和 `9240abe`，变基后是 `a1bbf01`、`890800d`）结论都是「可以合并，无必须修」，顺手能改的已改。记下来、没在这批动的：重新送之后 `doctor` 在通道领走前会显示「试了 0 次」（清零时没清上次的失败原因，清了 `doctor` 就不提这张卡了）；`doctor` 每个通道只报编号最大的那张没送到的卡，更早放弃的看不出来；`delivered` 不清放弃标记，迟到的送达报告会留下「已送到但仍标放弃」的记录，这时重新送会回 `changed: true` 但当下没东西可发（原有行为，重新送之后卡片再变化就能发出）；`doctor` 的提示没有带上 `redeliver` 这条命令（改 `doctor` 输出是改已有行为，没动）。已登记 DECIDED.md。
+- 与授权不一致之处、遗留问题、范围外发现：授权内；有一处是实施时我收窄的，常浩没单独定过：重新送只重启还会发的放弃通道，不会发的（卡片已答完又从没送到过、仅告知过了一天、通道已不在卡片范围）不清也不报「重新送了」，否则命令会说在重新送、实际永远不发。独立审查两轮（没写这段代码的 Claude 子 agent，审的是 `fb52344` 和 `9240abe`，变基后是 `2d4808b`、`18dc210`）结论都是「可以合并，无必须修」，顺手能改的已改。记下来、没在这批动的：重新送之后 `doctor` 在通道领走前会显示「试了 0 次」（清零时没清上次的失败原因，清了 `doctor` 就不提这张卡了）；`doctor` 每个通道只报编号最大的那张没送到的卡，更早放弃的看不出来；`delivered` 不清放弃标记，迟到的送达报告会留下「已送到但仍标放弃」的记录，这时重新送会回 `changed: true` 但当下没东西可发（原有行为，重新送之后卡片再变化就能发出）；`doctor` 的提示没有带上 `redeliver` 这条命令（改 `doctor` 输出是改已有行为，没动）。已登记 DECIDED.md。
 - 本轮新坑：无。
 
-## 回答卡片可以带上看到的版本，对不上就拒绝（2026-11-20，Claude，常浩在会话「数字分身｜框架对照与路径评审」回「按计划开工」；已提交、PR 未合并、无需发布）
+## 回答卡片可以带上看到的版本，对不上就拒绝（2026-11-20，Claude，常浩在会话「数字分身｜框架对照与路径评审」回「按计划开工」；常浩回「合并 #10」后已合并为 `30f5a8e`、无需发布）
 
 - 时间：开工 `2026-11-20 17:57`（`date '+%F %H:%M'` 记录）。来由：数字分身「引擎自有后可解开的限制」第 1 项，本仓库 #8。开着的卡片版本今天恒为 1，这一改堵不住正在发生的问题，换来的是接口保证。
 - 改了哪些文件：
