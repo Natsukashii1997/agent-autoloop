@@ -1,0 +1,11 @@
+agent-autoloop（常浩自用版）
+
+本项目源自 agent-autoloop（https://github.com/KKKKhazix/agent-autoloop，
+版本 v1.8.5，提交 d3a44ca），依据 MIT License 使用和修改，原版权声明与许可证全文见 LICENSE。
+自该版本起的改动由本项目作者完成，2026-11-20 起不再与上游同步。
+
+This project is derived from agent-autoloop
+(https://github.com/KKKKhazix/agent-autoloop, v1.8.5, commit d3a44ca) and is used
+and modified under the MIT License; the original copyright notice and license
+text are in LICENSE. Changes since that commit are made by this project's author
+and, from 2026-11-20, are not synchronized with upstream.

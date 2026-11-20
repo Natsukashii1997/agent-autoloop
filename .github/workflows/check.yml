@@ -35,6 +35,8 @@ jobs:
       - id: scope
         shell: bash
         run: sh scripts/ci-scope.sh >> "$GITHUB_OUTPUT"
+      # Handoff format, LESSONS and the hooks read docs, so they run on every change, docs too. No install needed.
+      - run: node scripts/check-rules.mjs && node --test tests/*.test.mjs
       - if: steps.scope.outputs.scope != 'docs'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
