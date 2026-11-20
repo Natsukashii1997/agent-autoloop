@@ -26,6 +26,7 @@
 // The why timeline must show receipt FYIs without adding empty closures or repeating hub-generated end notices.
 // The answers material carries the chosen text, or a 0-based choice gets read as the first option (issue #197: an Agent
 // reported 绿色 as 蓝色).
+// An answer that says which version of the card it saw lands on another version, or one that says nothing is turned away.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { at, setup } from "./helpers.ts";
@@ -36,7 +37,7 @@ setup("cards");
 const { ingest } = await import("./hub.ts");
 const { cancel, claimNext, execute, finish, heartbeat, started, sweep, why } = await import("./hub.ts");
 const { answer, resolve, nextCard, delivered, failed, tell, cardByToken, getView, stateOf } = await import("./hub.ts");
-const { AuthError, InputError, NotFound } = await import("../kernel/errors.ts");
+const { AuthError, Conflict, InputError, NotFound } = await import("../kernel/errors.ts");
 const { all, one, run } = await import("./storage.ts");
 
 const clean = () => {
@@ -346,6 +347,50 @@ test("a channel's answer must come from someone on its list, on the message it s
   assert.throws(() => answer(id, { choice: 0, by: "me", channel: "chat", ref: "om_forwarded" }, at(2)), AuthError);
   assert.equal(card(id).state, "open");
   assert.equal(answer(id, { choice: 0, by: "me", channel: "chat", ref: "om_1" }, at(2)).changed, true);
+});
+
+test("an answer that says which version it saw counts only on that version; saying nothing goes on as before", () => {
+  clean();
+  const { id } = asked(1);
+  const given = nextCard("chat", at(1))!;
+  delivered("chat", id, given.version, "om_1", at(1));
+  const before = getView().seq;
+  const stale = given.version + 1;
+  assert.throws(() => answer(id, { choice: 0, by: "本人", version: stale }, at(2)), Conflict);
+  assert.throws(
+    () => answer(id, { choice: 0, by: "me", channel: "chat", ref: "om_1", version: stale }, at(2)),
+    Conflict,
+  );
+  for (const version of [0, -1, 1.5, "1", null]) {
+    assert.throws(() => answer(id, { choice: 0, by: "本人", version } as any, at(2)), InputError, String(version));
+  }
+  assert.equal(getView().seq, before, "a refused answer writes no fact");
+  assert.equal(card(id).state, "open", "and leaves the card open");
+  assert.equal(all("SELECT id FROM events WHERE type = 'card.answered'").length, 0);
+  assert.equal(claim("w1", at(2)), null, "and wakes nobody");
+
+  const right = { choice: 0, by: "me", channel: "chat", ref: "om_1", version: given.version };
+  assert.deepEqual(answer(id, right, at(3)), { changed: true, state: "decided" });
+  assert.equal(claim("w1", at(3))!.context.answers[0].choice, 0);
+  // Answered or closed, it was handled already: that's what a late answer is told, whichever version it saw.
+  assert.deepEqual(answer(id, { choice: 1, by: "本人", version: given.version }, at(4)), {
+    changed: false,
+    state: "decided",
+  });
+  clean();
+  const closed = asked(2).id;
+  resolve(closed, "问题自己好了", "owner", at(1));
+  assert.deepEqual(answer(closed, { choice: 0, by: "本人", version: 1 }, at(2)), { changed: false, state: "closed" });
+  // A notice is closed the same way, and nothing said about the version is still an answer.
+  clean();
+  const notice = tell("source:app:version", "应用", "看一眼", at(0)).card;
+  execute("createCard", [{ key: "plain-notice", kind: "notice", title: "通知", text: "要处理" }], at(0));
+  const open = one<{ id: number; version: number }>("SELECT id, version FROM cards WHERE key = 'plain-notice'")!;
+  assert.throws(() => answer(open.id, { by: "本人", version: open.version + 1 }, at(1)), Conflict);
+  assert.equal(answer(open.id, { by: "本人", version: open.version }, at(1)).changed, true);
+  assert.equal(answer(notice, { by: "本人", version: 9 }, at(1)).changed, false, "made closed: already handled");
+  const plain = asked(3).id;
+  assert.deepEqual(answer(plain, { choice: 1, by: "本人" }, at(1)), { changed: true, state: "decided" });
 });
 
 test("a run may resolve only what it was given to check, and a bad id doesn't spoil its own result", () => {

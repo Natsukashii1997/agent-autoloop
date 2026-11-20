@@ -525,7 +525,13 @@ function answer(draft: Draft, id: number, given: Row) {
     const delivery = draft.view.get("deliveries", `${id}:${given.channel}`);
     if (!delivery?.ref || delivery.ref !== given.ref) throw new AuthError("不是发出去的那条消息");
   }
+  // The version the answerer saw, when it says: a bad one is the caller's mistake whatever has become of the card.
+  const seen = given.version;
+  if (seen !== undefined && !(Number.isInteger(seen) && seen >= 1)) throw new InputError("version 要是正整数");
   if (card.state !== "open") return { changed: false, state: card.state };
+  if (seen !== undefined && seen !== card.version) {
+    throw new Conflict(`这张卡片现在是第 ${card.version} 版，不是回答时看到的第 ${seen} 版，这次回答没有算数`);
+  }
   if (given.by !== undefined && (typeof given.by !== "string" || [...given.by].length > ANSWER_BY)) {
     throw new InputError(`回答人最多 ${ANSWER_BY} 字`);
   }

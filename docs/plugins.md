@@ -80,6 +80,8 @@ Claude 委托 Codex 的完整规则、Skill 和参数调用脚本见[浏览器�
 | `hub.failed(id, version, error)`      | 报告发送失败                              |
 | `hub.answer(id, { choice, by, ref })` | 转交回答；核对回答人和原消息              |
 
+`hub.answer` 可以再带 `version`（领到卡片时的 `card.version`）：和卡片现在的版本不一致就抛 409（`HubError`），这次回答不算数；不带和以前一样，细节见[协议](protocol.md#通道把卡片送到你面前)。
+
 `ref` 为空就发新消息，有值就更新原消息；不能更新时只报告。没报告的卡片一分钟后重派。`signal` 中止时退出；函数在此之前返回或抛错，都记日志并在 30 秒后重启，所以它要一直运行。插件和中台在同一个进程里：没接住的错误只记日志，不让中台退出。
 
 在 `rules.json` 登记通道、用 `agent-autoloop key new channel cards` 取密钥，再把下面这项放进 `config.json` 的 `channels`，重启中台：

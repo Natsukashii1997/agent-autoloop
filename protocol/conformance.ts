@@ -124,8 +124,14 @@ export async function conformance(base: string, config: Probe, request: typeof f
   await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, by: "not-allowed" }, 401);
   await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, ref: "wrong" }, 401);
   await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, choice: 99 }, 400);
-  assert.equal((await call(`/v1/cards/${card.id}/answer`, keys.channel, answer)).changed, true);
-  assert.equal((await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, choice: 1 })).changed, false);
+  // An answer may say which version of the card it saw: another version is refused, at the channel's door and the owner's.
+  await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, version: card.version + 1 }, 409, "error");
+  await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...answer, version: 0 }, 400);
+  await call(`/v1/cards/${other.id}/answer`, keys.owner, { choice: 0, version: other.version + 1 }, 409, "error");
+  const seen = { ...answer, version: card.version };
+  assert.equal((await call(`/v1/cards/${card.id}/answer`, keys.channel, seen)).changed, true);
+  // Handled already is what a late answer is told, whichever version it saw.
+  assert.equal((await call(`/v1/cards/${card.id}/answer`, keys.channel, { ...seen, choice: 1 })).changed, false);
   await call(`/v1/cards/${other.id}/resolve`, keys.owner, { reason: " " }, 400);
   assert.equal((await call(`/v1/cards/${other.id}/resolve`, keys.owner, { reason: "已核实" })).changed, true);
   assert.equal((await call(`/v1/cards/${other.id}/answer`, keys.owner, { choice: 0 })).changed, false);

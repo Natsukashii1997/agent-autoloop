@@ -25,6 +25,7 @@ const edits: [string, string, string, string][] = [
   ["answer-first", "decide.ts", 'if (card.state !== "open")', "if (false)"],
   ["answer-person", "decide.ts", 'if (allowed && !allowed.includes(given.by ?? ""))', "if (false)"],
   ["answer-message", "decide.ts", "if (!delivery?.ref || delivery.ref !== given.ref)", "if (false)"],
+  ["answer-version", "decide.ts", "if (seen !== undefined && seen !== card.version) {", "if (false) {"],
   [
     "answer-wakeup",
     "decide.ts",

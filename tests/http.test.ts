@@ -8,7 +8,8 @@
 // option; a card link answers more than its card; a webhook with a bad signature is taken, or one without an adapter; a
 // webhook's secret leaks into anything it returns; the owner's key opens the worker's door; a page other than a card's exists;
 // a card's link still answers or shows the card after its week, or sends you to a command that doesn't work; a link opens
-// when no channel takes links.
+// when no channel takes links; an answer that names a version of the card it didn't see counts, at the channel's door or
+// the owner's.
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -267,6 +268,44 @@ test("the owner's key reads everything, answers, resolves and stops; nothing els
   assert.equal((await call(`/v1/runs/${waiting.json.job.run}/cancel`, { body: {} })).status, 401);
   assert.equal((await call(`/v1/runs/${waiting.json.job.run}/cancel`, { key: keys.owner, body: {} })).status, 200);
   assert.deepEqual((await call("/v1/work?claim=c-11&wait=0", { key: keys.w1 })).json.cancel, [waiting.json.job.run]);
+});
+
+test("an answer that names another version than the card's is refused with 409 at the channel's door and the owner's", async () => {
+  await call("/v1/events", { key: keys.app, body: note(60) });
+  const job = (await call("/v1/work?claim=c-60&wait=0", { key: keys.w1 })).json.job;
+  const ask = [{ title: "核版本", text: "选一个", options: ["甲", "乙"], key: "version" }];
+  await call(`/v1/runs/${job.run}/result`, { key: job.token, body: { outcome: "done", ask } });
+  let card: any;
+  for (;;) {
+    const { json } = await call("/v1/cards/next?wait=0", { key: keys.chat });
+    if (!json.card) break;
+    card = json.card;
+    await call(`/v1/cards/${card.id}/delivered`, { key: keys.chat, body: { version: card.version, ref: "om_v" } });
+  }
+  assert.equal(card.title, "核版本");
+  const url = `/v1/cards/${card.id}/answer`;
+  const click = { choice: 0, by: "me", ref: "om_v" };
+  // What an answer leaves behind: the event that says so, and the run it wakes.
+  const traces = () => [
+    all("SELECT id FROM events WHERE type = 'card.answered'").length,
+    all("SELECT id FROM runs").length,
+  ];
+  const before = traces();
+  for (const key of [keys.chat, keys.owner]) {
+    const stale = await call(url, { key, body: { ...click, version: card.version + 1 } });
+    assert.equal(stale.status, 409);
+    assert.match(stale.json.error, /版/);
+    assert.equal((await call(url, { key, body: { ...click, version: "1" } })).status, 400);
+  }
+  // Who may answer is settled first: a version can't be tried out by someone who couldn't answer anyway.
+  assert.equal((await call(url, { key: keys.chat, body: { ...click, by: "stranger", version: 9 } })).status, 401);
+  assert.equal(one<{ state: string }>("SELECT state FROM cards WHERE id = ?", [card.id])!.state, "open");
+  assert.deepEqual(traces(), before, "no answer recorded, nobody woken");
+  const yes = await call(url, { key: keys.chat, body: { ...click, version: card.version } });
+  assert.deepEqual([yes.status, yes.json], [200, { changed: true, state: "decided" }]);
+  assert.deepEqual(traces(), [before[0] + 1, before[1] + 1]);
+  const late = await call(url, { key: keys.owner, body: { choice: 1, version: card.version } });
+  assert.deepEqual([late.status, late.json], [200, { changed: false, state: "decided" }]);
 });
 
 const form = (path: string, fields: string) =>

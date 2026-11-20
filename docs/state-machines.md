@@ -20,7 +20,7 @@
 
 | 对象 | 状态与存储 | 谁在哪里改 |
 | --- | --- | --- |
-| 提问 | `cards.state`: `open → decided → done` 或 `open → closed` | `createCard` 创建；`answer` 核对本人、通道和消息 ref，只改 open，产生 `answer_event`；成功处理回答的 `applyReceipt` 才写 done；`resolve/closeCard` 表示无需决定 |
+| 提问 | `cards.state`: `open → decided → done` 或 `open → closed` | `createCard` 创建；`answer` 核对本人、通道和消息 ref，只改 open，带了 `version` 还要和卡片当前版本一致（不一致 409、不写事实），产生 `answer_event`；成功处理回答的 `applyReceipt` 才写 done；`resolve/closeCard` 表示无需决定 |
 | 通知 | 普通通知 open → closed；FYI 创建时就是 closed | `cardFromReceipt/notify/tell` 创建，本人或允许范围内的回执结案。decided 不等于执行过；续办被取消仍保留决定，不伪造 done |
 | 投递 | `deliveries[card_id:channel]` 的 `version/ref/tries/not_before/given_up` 组合：未发、已租出、重试等待、已同步、放弃 | `nextCard` 租给通道，`delivered` 确认，`failed` 排重试；卡片版本更高时更新原消息。超过窗口放弃，重复 tell 可重新启动已放弃投递 |
 | 复查 | `timers.event_id=null` 等待，非空已触发；同 `rule/lane/key` 只一个待触发 | `scheduleReview` 设置、改期、取消；`tick` 记唯一 timer.due 并派回原事项；已触发 timer 的资料留在投影直到关联 run 进入终态，供排队和重试续接使用，终态后从活动投影移除（事实日志保留完整变更）；删规则或改名后到期只留事件记录、不派发，并发通知卡片写明原规则名和复查开头 |
