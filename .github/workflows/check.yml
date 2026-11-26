@@ -35,8 +35,16 @@ jobs:
       - id: scope
         shell: bash
         run: sh scripts/ci-scope.sh >> "$GITHUB_OUTPUT"
-      # Handoff format, LESSONS and the hooks read docs, so they run on every change, docs too. No install needed.
-      - run: node scripts/check-rules.mjs && node --test tests/*.test.mjs
+      # The rule check lives in agent-kit, one copy for every repo (agent-kit#133); this repo's settings are in scripts/hooks.json.
+      # Pinned to a tag so a change there reaches CI only when this ref moves; agent-kit's doctor warns when the tag falls behind.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Natsukashii1997/agent-kit
+          ref: git-hooks-v1
+          path: .agent-kit
+      # Handoff format and LESSONS read docs, so they run on every change, docs too. No install needed.
+      # .agent-kit is kept out of the big-change count, which counts untracked files.
+      - run: echo .agent-kit/ >> .git/info/exclude && node .agent-kit/git-hooks/check-rules.mjs . && node --test tests/*.test.mjs
       - if: steps.scope.outputs.scope != 'docs'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
