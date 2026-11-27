@@ -1,6 +1,29 @@
 # 当前状态
 
-更新：2026-11-21。AGENTS 的「社区贡献」「怎么发版」两节改成自有项目的写法（本节 PR 未合并）。唯一下一步：常浩回来后决定合不合这个 PR；打第一个自己的版本标签先不做，等常浩在场再定。
+更新：2026-11-27。一次性合入上游 v1.10.4（本节 PR 未合并）。唯一下一步：常浩回「合并」后，按数字分身上线照抄单第 4 步把 dt-gate 里的中台换到合并后的提交，再重新锁定中台版本。
+
+## 一次性合入上游 v1.10.4（2026-11-27，Claude，常浩看过改动确认后回「合并上游再升级」；已提交、PR 未合并、未发布）
+
+- 时间：开工 `2026-11-27 21:19`（会话创建时间；`date '+%F %H:%M'` 提交前记的是 `2026-11-27 21:30`）。来由：常浩要装上游最新版；11-20 定过「不再跟上游」，发改动确认后他选了合并再升级（#18）。
+- 改了哪些文件：合入上游 `c53448c`（v1.10.4，自分叉点 `d3a44ca` 起 75 个提交，114 个文件）；冲突 6 处手工合：`AGENTS.md`（保留只跑 Ubuntu CI、nightly 每周，收「没有测试读的文档才跳过」）、`docs/protocol.md`、`docs/state-machines.md`（保留「重新送」，收 lane / tags、复查事件）、`skills/agent-autoloop/SKILL.md`（保留 redeliver，收 stop 新语义、额度恢复）、`tests/cards.test.ts`、`tests/http.test.ts`（注释合并）；`tests/channel-scope.test.ts` 补 `ruleRuns`（上游给 Services 新加的字段）；`docs/DECIDED.md`、`NOTICE` 记下这次一次性合入；`CURRENT.md`（本节）。
+- 测试：`npm test` 原样结果 `ℹ tests 884` `ℹ pass 862` `ℹ fail 0` `ℹ skipped 22`；`npm run test:sim` 通过；`npm run typecheck`、`npm run format:check` 通过。日志 `~/Library/Application Support/DigitalTwin/evidence/2026-11-27-engine-merge-upstream/claude-01-npm-test.log`、`claude-02-test-sim.log`。
+- 验证环境：替身：数字分身 `ops/autoloop_drill.py` 在临时目录（随机端口、不装服务）演练 `abc8d41 → ee70228` 升级、坏版本回滚、搬家，三段都过，挂起卡片升级前后一致、回答后「试跑通过」（`claude-03-drill.log`）。未在真实环境验证：dt-gate 里的正式中台还没换。
+- 外部前提与实测：数字分身直接只读的中台库表（runs、run_events、events、cards、projections）上游没改结构（`kernel/evolve.ts` 只多一个 limits 键）；`/v1/state` 多了 `tags`、通道卡片多了 `lane`，都是新增字段。
+- 截图：无。
+- 发布与回读：未发布。
+- 与授权不一致之处、遗留问题、范围外发现：授权内。用的是上游最新发布 v1.10.4，不是上游 main（main 比它多 5 个提交，未发布）。dt-worker 的接单程序还是 v1.8.5（`d3a44ca`），本次不动。
+- 本轮新坑：无。
+
+### 改前改后功能对照
+
+| 原有功能 | 改后 | 怎么核对的 |
+|---|---|---|
+| 回答卡片带 `version`，对不上回 409（#10） | 还在 | `npm test` 里 cards / http 的版本用例全过 |
+| 本人入口「重新送」`redeliver`（#11） | 还在，SKILL、protocol、state-machines 的说明保留 | 同上；`grep redeliver cli/main.ts kernel/` |
+| 不在卡片通道范围里的通道不能报送达再代答（#3） | 还在 | `tests/channel-scope.test.ts` 通过（补了 ruleRuns） |
+| 一键安装、update 指本仓库（#13） | 还在 | `grep KKKKhazix` 只剩写出处的 NOTICE、AGENTS 开头 |
+| CI 只跑 Ubuntu、nightly 每周（#2） | 还在 | AGENTS.md 冲突取自有写法 |
+| 中台升级、回滚、搬家后挂起的卡片照常接着答 | 还在 | 数字分身升级演练三段通过 |
 
 ## AGENTS「社区贡献」「怎么发版」改成自有项目的写法（2026-11-21，Claude，常浩 11-21 12:25 在飞书回「全部给推荐，然后按照你推荐的去推进」，推荐是「做，只开 PR、不合并」，经会话「数字分身｜离开时托管推进」转达；已提交、PR 未合并、无需发布）
 
