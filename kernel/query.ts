@@ -14,6 +14,12 @@ export function pauseOf(view: View, rule: Rule, now: number): Row | null {
   return row && (row.until === null || Date.parse(row.until) > now) ? row : null;
 }
 
+/** The usage limit an agent has hit and that hasn't reset yet: until then none of its rounds is handed out. */
+export function limitOf(view: View, agent: string, now: number): Row | null {
+  const row = view.get("limits", agent);
+  return row && Date.parse(row.until) > now ? row : null;
+}
+
 export const workerOf = (view: View, run: Row) => configuration(view, run.rules_version).agents[run.agent]?.worker;
 export function agentsOf(view: View, worker: string) {
   const agents = Object.entries(configuration(view).agents);
@@ -35,6 +41,24 @@ export function waitingOn(view: View, worker: string, now: number) {
 export function eventsOf(view: View, runId: number) {
   const links = rows(view, "run_events", { run_id: runId });
   return links.map((link) => view.get("events", link.event_id)!).sort((a, b) => a.id - b.id);
+}
+
+/** The ids of the events a round worked on, with a wake-up it was called by followed back to what that was about. */
+export function askedAbout(view: View, runId: number | null, seen = new Set<number>()): string[] {
+  if (runId === null || seen.has(runId)) return [];
+  seen.add(runId);
+  const ids = eventsOf(view, runId).flatMap((event) => {
+    const cards = rows(view, "cards", { answer_event: event.id });
+    if (cards.length === 0) {
+      // A check that came due: what it was set for was written on the event when it fired, and on the row before that for
+      // logs written then. The row is gone once the round it wakes ends, and an answer can wake a round later still.
+      const [fired] = rows(view, "timers", { event_id: event.id }).filter((timer) => timer.events);
+      const written = event.events ?? fired?.events;
+      return written ? JSON.parse(written) : [event.key];
+    }
+    return cards.flatMap((card) => (card.run_id === null ? [event.key] : askedAbout(view, card.run_id, seen)));
+  });
+  return [...new Set(ids)];
 }
 
 export function sourceOf(view: View, runId: number) {
@@ -123,7 +147,7 @@ export function cardView(card: Row, env: Environment, ref: string | null = null,
 
 export function jobOf(view: View, run: Row, env: Environment): Job {
   const rules = configuration(view, run.rules_version);
-  const { name, cwd, skill, prompt, title, emits } = ruleOf(rules, run.rule)!;
+  const { name, cwd, skill, prompt, title, emits, tags } = ruleOf(rules, run.rule)!;
   const { maxActive: _maxActive, ...agent } = rules.agents[run.agent];
   const events = eventsOf(view, run.id);
   const eventIds = events.map((event) => event.id);
@@ -135,7 +159,13 @@ export function jobOf(view: View, run: Row, env: Environment): Job {
     .flatMap((state) => rows(view, "cards", { ...thread, state }, 20, true))
     .sort((a, b) => b.id - a.id)
     .slice(0, 20);
-  const timerView = (timer: Row) => ({ key: timer.key, about: timer.about, at: timer.at });
+  const timerView = (timer: Row) => ({
+    key: timer.key,
+    about: timer.about,
+    at: timer.at,
+    // Recorded when the check was set: the row names no run to follow back from, and it goes once the round it wakes ends.
+    events: JSON.parse(timer.events ?? "[]"),
+  });
   return {
     run: run.id,
     token: credential(env, "run", run.id, run.issued),
@@ -149,20 +179,25 @@ export function jobOf(view: View, run: Row, env: Environment): Job {
         const sourceName = rules.sources[source]?.name ?? source;
         return { id, source, sourceName, type, subject, summary, detail, link, receivedAt, hops: hops ?? 0 };
       }),
-      answers: answers.map(({ id: card, title, options, choice, answer: text, about, by, decided_at: at }) => {
-        const picked: string[] = JSON.parse(options);
-        return {
-          card,
-          title,
-          options: picked,
-          choice,
-          chosen: choice === null ? text : picked[choice],
-          text,
-          about,
-          by,
-          at,
-        };
-      }),
+      answers: answers.map(
+        ({ id: card, title, options, choice, answer: text, about, by, decided_at: at, run_id: asked }) => {
+          const picked: string[] = JSON.parse(options);
+          return {
+            card,
+            title,
+            options: picked,
+            choice,
+            chosen: choice === null ? text : picked[choice],
+            text,
+            about,
+            by,
+            at,
+            // The round that asked is the only way back to what the question was about: this round's own events are the
+            // answer alone, so without these a source cannot tie what the answer led to back to the id it sent (#320).
+            events: askedAbout(view, asked),
+          };
+        },
+      ),
       timers: timers.map(timerView),
       waiting: waiting.sort((a, b) => a.at.localeCompare(b.at)).map(timerView),
       open: openInScope(view, run).map(({ id, title, text, created_at }) => ({
@@ -176,6 +211,7 @@ export function jobOf(view: View, run: Row, env: Environment): Job {
         .map(({ id, title, choice, answer, options, decided_at }) => {
           return { card: id, title, choice: choice === null ? answer : JSON.parse(options)[choice], at: decided_at };
         }),
+      ...(tags && { tags }),
     },
   };
 }

@@ -7,13 +7,14 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { hubClient } from "../protocol/client.ts";
 import { parseRules } from "../protocol/rules.ts";
-import { CONFIG_FILE, readConfig, writeConfig, type Config } from "../host/config.ts";
+import { CONFIG_FILE, parseListen, readConfig, writeConfig, type Config } from "../host/config.ts";
 import { HOME, RULES_FILE } from "../host/home.ts";
 import { findOnPath, psQuote } from "../host/command.ts";
 import { privateDirectory } from "../host/files.ts";
 import {
   aboveDesktop,
   installService,
+  leftToSystem,
   removeService,
   restartService,
   runningUp,
@@ -35,6 +36,7 @@ const HELP = `Agent 自动化中台
   agent-autoloop init [--agent claude|codex] [--command '某个命令 {prompt}'] [--port 3350] [--no-service]
                                     在这台电脑上装好：一个人一台电脑就够
   agent-autoloop try                     用你的 Agent 跑一遍完整流程
+  agent-autoloop wakeups [规则] [--limit 条数] [--json]  按触发原因核对历史轮次和用量（默认最近 100 条）
   agent-autoloop why <第几轮> [--json]  查看时间线；--json 输出原始事实
   agent-autoloop conformance <地址> --config <测试凭据文件>
                                     在测试中台上检查协议
@@ -166,6 +168,7 @@ rules.json 里这个定时任务要写 cwd；你答了，中台叫醒它的 Agen
   },
   rules: { flags: [], usage: "用法：agent-autoloop rules explain [文件]" },
   runs: { flags: ["before", "json"], usage: RUNS_USAGE },
+  wakeups: { flags: ["limit", "json"], usage: "用法：agent-autoloop wakeups [规则] [--limit 正整数] [--json]" },
   run: { flags: ["subject", "reason"], usage: "用法：agent-autoloop run <规则> [--subject 对象] [--reason 说明]" },
   service: { flags: [], usage: "用法：agent-autoloop service install|remove" },
   status: { flags: ["json"], usage: STATUS_USAGE },
@@ -179,6 +182,7 @@ rules.json 里这个定时任务要写 cwd；你答了，中台叫醒它的 Agen
 };
 
 type Flags = Record<string, string | true>;
+const BOOLEAN_FLAGS = new Set(["dry-run", "json", "no-service", "yes"]);
 
 function flags(args: string[]) {
   const named: Flags = {};
@@ -188,8 +192,14 @@ function flags(args: string[]) {
       rest.push(args[i]);
       continue;
     }
+    const eq = args[i].indexOf("=", 2);
+    if (eq !== -1) {
+      named[args[i].slice(2, eq)] = args[i].slice(eq + 1);
+      continue;
+    }
     const name = args[i].slice(2);
-    if (args[i + 1] !== undefined && !args[i + 1].startsWith("--")) named[name] = args[++i];
+    if (BOOLEAN_FLAGS.has(name)) named[name] = true;
+    else if (args[i + 1] !== undefined && !args[i + 1].startsWith("--")) named[name] = args[++i];
     else named[name] = true;
   }
   return { named, rest };
@@ -209,8 +219,11 @@ function refuseUnknownFlags(args: string[], { flags: known, usage }: { flags: st
     console.log(usage);
     process.exit(0);
   }
-  const unknown = Object.keys(flags(args).named).filter((name) => !known.includes(name));
+  const { named } = flags(args);
+  const unknown = Object.keys(named).filter((name) => !known.includes(name));
   if (unknown.length) fail(`不认识的参数：${unknown.map((name) => `--${name}`).join("、")}\n\n${usage}`);
+  const badBool = Object.entries(named).find(([name, value]) => BOOLEAN_FLAGS.has(name) && value !== true);
+  if (badBool) fail(`--${badBool[0]} 不接参数值\n\n${usage}`);
 }
 
 const client = (key: string, config = readConfig()) => hubClient(config.url, key);
@@ -293,7 +306,7 @@ function commandWords(line: string) {
 /** What was asked for on the command line, or whichever of the usual Agents is installed. */
 async function agentsToUse(named: Flags, worker: string) {
   const agents: Record<string, { name: string; worker: string; use: string; command?: string[] }> = {};
-  const { adapterFor, findProgram } = await import("../worker/agents.ts");
+  const { adapterFor, onPath } = await import("../worker/agents.ts");
   const command = text(named.command);
   if (command) {
     const words = commandWords(command);
@@ -302,14 +315,8 @@ async function agentsToUse(named: Flags, worker: string) {
     const [first] = words;
     const there = /[\\/]/.test(first)
       ? existsSync(path.resolve(first))
-      : /^[\w.+@-]+$/.test(first) &&
-        (() => {
-          try {
-            return Boolean(findProgram(first));
-          } catch {
-            return false;
-          }
-        })();
+      : // Where the rule will look, not where a built-in Agent may also look: a rule's command runs in a login shell.
+        /^[\w.+@-]+$/.test(first) && Boolean(onPath(first));
     if (!there) return fail(`找不到 ${first}：先装好它，或者在 --command 里写它的完整路径。`);
     agents.agent = { name: "Agent", worker, use: "command", command: words };
     return agents;
@@ -341,6 +348,14 @@ async function init(args: string[]) {
   // `init -p 4000` would otherwise install on the default port in silence.
   if (rest.length) return fail(`不认识的参数：${rest.join(" ")}\n\n${INIT_USAGE}`);
   if (existsSync(CONFIG_FILE)) return fail(`已经装过了：${CONFIG_FILE}`);
+  if (named.port === true) return fail(INIT_USAGE);
+  const portText = text(named.port) ?? "3350";
+  let port: number;
+  try {
+    port = parseListen(`127.0.0.1:${portText}`).port;
+  } catch {
+    return fail(`--port 要写 1 到 65535 之间的整数端口：${portText}`);
+  }
   privateDirectory(HOME);
   mkdirSync(path.join(HOME, "try"), { recursive: true });
   const hostName = hostname()
@@ -354,7 +369,6 @@ async function init(args: string[]) {
         "或者用 --command 指定别的命令行 Agent，比如 --command 'hermes chat -Q -q {prompt}'",
     );
   }
-  const port = text(named.port) ?? "3350";
   const url = `http://127.0.0.1:${port}`;
   const ownRules = !existsSync(RULES_FILE);
   if (ownRules) {
@@ -391,6 +405,22 @@ async function join(args: string[]) {
   const name = text(named.worker);
   const key = text(named.key);
   if (!url || !name || !key) return fail(TAKES.join.usage);
+  const badAddress = "中台地址要写完整的 http:// 或 https:// 地址，不能带账号、查询参数或片段";
+  let address: URL;
+  try {
+    address = new URL(url);
+  } catch {
+    return fail(badAddress);
+  }
+  if (
+    !["http:", "https:"].includes(address.protocol) ||
+    address.username ||
+    address.password ||
+    address.search ||
+    address.hash
+  ) {
+    return fail(badAddress);
+  }
   // Joining another hub must not silently replace this machine's existing hub, worker or owner keys.
   if (existsSync(CONFIG_FILE)) {
     return fail(`已经配置过了：${CONFIG_FILE}。为防止覆盖现有设置，请先备份并手动修改配置。`);
@@ -492,11 +522,20 @@ async function runs(args: string[]) {
   if (rest.length > 1 || named.before === true) return fail(RUNS_USAGE);
   const before = named.before === undefined ? undefined : runOf(named.before, RUNS_USAGE);
   const owner = ownerClient();
-  const { findRuns, runsText } = await import("./runs.ts");
-  const found = await findRuns((at) => owner.state(at), { rule: rest[0], before });
+  const { readRuns, runsText } = await import("./runs.ts");
+  const found = await readRuns(owner, rest[0], before);
   if (named.json !== undefined) return console.log(JSON.stringify({ runs: found.runs, before: found.more }, null, 2));
   const color = colorFor(process.stdout, process.env);
   console.log(runsText(found, { rule: rest[0], color, columns: process.stdout.columns }));
+}
+
+async function wakeups(args: string[]) {
+  const { named, rest } = flags(args);
+  if (rest.length > 1 || named.limit === true) return fail(TAKES.wakeups.usage);
+  const limit = named.limit === undefined ? 100 : runOf(named.limit, TAKES.wakeups.usage);
+  const { wakeupReport, wakeupText } = await import("./wakeups.ts");
+  const report = await wakeupReport(ownerClient(), rest[0], limit);
+  console.log(named.json ? JSON.stringify(report, null, 2) : wakeupText(report));
 }
 
 async function answer(args: string[]) {
@@ -816,12 +855,11 @@ function runOf(word: string | undefined, usage: string) {
 }
 
 async function why(args: string[]) {
-  const id = runOf(
-    args.find((arg) => !arg.startsWith("--")),
-    "用法：agent-autoloop why <第几轮> [--json]",
-  );
+  const { named, rest } = flags(args);
+  if (rest.length !== 1) return fail(TAKES.why.usage);
+  const id = runOf(rest[0], TAKES.why.usage);
   const facts = await ownerClient().why(id);
-  if (args.includes("--json")) return console.log(JSON.stringify(facts, null, 2));
+  if (named.json !== undefined) return console.log(JSON.stringify(facts, null, 2));
   const { formatWhy } = await import("./why.ts");
   console.log(formatWhy(id, facts));
 }
@@ -880,6 +918,8 @@ async function service(args: string[]) {
   if (args[0] === "install") {
     // Installing over kept data comes here and not to init, and uninstalling took the links away.
     linkSkill();
+    const told = leftToSystem();
+    if (told) return console.log(told);
     installService();
     return waitForHub();
   }
@@ -932,6 +972,7 @@ const commands: Record<string, () => unknown> = {
   status: () => status(flags(args).named),
   why: () => why(args),
   runs: () => runs(args),
+  wakeups: () => wakeups(args),
   conformance: () => checkConformance(args),
   answer: () => answer(args),
   resolve: () => resolve(args),

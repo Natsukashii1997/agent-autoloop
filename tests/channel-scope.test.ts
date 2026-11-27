@@ -21,6 +21,7 @@ const handle = createHandler({
   skipped: hub.skipped,
   why: hub.why,
   card: hub.cardByToken,
+  ruleRuns: hub.runsOfRule,
   wait: async () => {},
   stream: () => new ReadableStream(),
   adapt: async () => [],

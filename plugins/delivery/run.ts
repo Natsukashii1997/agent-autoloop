@@ -5,9 +5,28 @@ import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { createIO, gh, isGitHubHiccup, type DeliveryOptions } from "./github.ts";
-import { deliver, DeliveryRefusal, DeliverySuperseded, disableAuto, status, type DeliveryIO } from "./delivery.ts";
+import {
+  ChecksStillRunning,
+  deliver,
+  DeliveryRefusal,
+  DeliverySuperseded,
+  disableAuto,
+  status,
+  type DeliveryIO,
+} from "./delivery.ts";
 import { deliveryReceipt, question, receiptBlock, subjectNumber } from "./input.ts";
-import { hasLabel, retryHandoff, retryState, runHook, tellQuestion, tellReturn, unattendedFailure } from "./handoff.ts";
+import {
+  hasLabel,
+  retryHandoff,
+  retryState,
+  runHook,
+  tellQuestion,
+  tellReturn,
+  unattendedFailure,
+  waitHandoff,
+} from "./handoff.ts";
+
+const STILL_RUNNING = "完整检查还在跑，一分钟后接着等";
 
 type Options = DeliveryOptions & { progressCommand?: string; notifyCommand?: string; direct?: boolean };
 type Context = Parameters<typeof subjectNumber>[1] & {
@@ -80,6 +99,10 @@ async function handoff(
     return { text: result.summary, exit: result.merged || result.reviewOnly ? undefined : 2 };
   } catch (error) {
     if (error instanceof DeliverySuperseded) return { text: error.message, exit: 2 };
+    if (error instanceof ChecksStillRunning) {
+      await io.report?.("retrying", error.head, { detail: "checks" });
+      return { text: STILL_RUNNING, retry: waitHandoff(timers, error.head, Date.now(), io.checkRecovery) };
+    }
     if (error instanceof DeliveryRefusal) {
       head = error.head ?? head;
       try {
@@ -90,6 +113,11 @@ async function handoff(
     }
     head = io.checkRecovery?.head ?? head;
     const hiccup = isGitHubHiccup(error);
+    // The round's own output keeps the whole message; the board and the commit get the first line of what failed said.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`交付出错：${message}`);
+    const said = String((error as { stderr?: unknown })?.stderr ?? "").trim() || message;
+    const cause = [...(said.split("\n").find((line) => line.trim()) ?? "").trim()].slice(0, 60).join("");
     const canReturn = !!pr && hasLabel(pr, "deliver");
     const retry = retryHandoff(
       timers,
@@ -101,12 +129,15 @@ async function handoff(
     );
     if (retry) {
       if (head) await io.report?.("retrying", head, { detail: hiccup ? "github" : "execution" });
-      return { text: hiccup ? "GitHub 暂时出错，一分钟后接着查" : "交付步骤暂时出错，一分钟后接着查", retry };
+      return {
+        text: hiccup ? "GitHub 暂时出错，一分钟后接着查" : `交付步骤暂时出错（${cause}），一分钟后接着查`,
+        retry,
+      };
     }
     if (!canReturn) return { text: "暂时读不到交付请求，请稍后重交", exit: 2 };
     try {
       return await sendBack(
-        hiccup ? "GitHub 连续约一小时出错，请稍后重交" : "交付连续五次尝试都卡住了，请稍后重交",
+        hiccup ? "GitHub 连续约一小时出错，请稍后重交" : `交付连续五次尝试都卡住了（${cause}），请稍后重交`,
         hiccup ? "github" : "execution",
       );
     } catch {
@@ -165,6 +196,8 @@ export async function run(repo: string, context: Context, testLocalHealth = fals
       return deliveryReceipt(number, result, hasLabel(issue, "deliver-attended"));
     } catch (error) {
       if (error instanceof DeliverySuperseded) return error.message;
+      if (error instanceof ChecksStillRunning)
+        return `${STILL_RUNNING}\n${receiptBlock({ later: [waitHandoff([], error.head)] })}`;
       const pr = await io.api(`pulls/${number}`);
       if (pr.auto_merge) await disableAuto(number, io);
       await status(io, pr.head.sha, "delivery", "failure", (error as Error).message);

@@ -16,6 +16,7 @@
 // in meanwhile loses the session of the answer in it, or has it wiped by what had none. A run with events from two
 // sources is given, or closes, cards that have no source. A channel that takes a card and never reports gets it for ever.
 // A card closed while its first message is on the way never gets that message updated.
+// After a rule moves to another group, its next run isn't given the cards its earlier runs left open (issue #362).
 // A channel whose program keeps coming but whose last card didn't get through looks fine in the state (issue #290).
 // A rule that lists its channels has its cards, and the notices of its runs, sent to others as well; one that lists none
 // stops reaching every channel; a notice of nobody's rule reaches only some. With defaultChannels, a card that names no
@@ -25,7 +26,8 @@
 // ordinary notices, questions, quiet rules, and the one-day FYI delivery window must keep their existing behavior.
 // The why timeline must show receipt FYIs without adding empty closures or repeating hub-generated end notices.
 // The answers material carries the chosen text, or a 0-based choice gets read as the first option (issue #197: an Agent
-// reported 绿色 as 蓝色).
+// reported 绿色 as 蓝色). It doesn't carry the events the question was asked about, or after a second question only the
+// first answer, so a source can't tie what the answer led to back to the id it sent (issue #320).
 // An answer that says which version of the card it saw lands on another version, or one that says nothing is turned away.
 // A question every try gave up on can never be sent again; sent again at the owner's word, it goes on counting from the
 // old tries and gives up at once, loses the message it already has and posts a second one, or touches a channel that
@@ -136,6 +138,32 @@ test("the answers material carries the chosen text so the 0-based choice can't b
   answer(second, { text: "先备份再删", by: "me" }, at(3));
   const free = claim("w1", at(3))!;
   assert.deepEqual([free.context.answers[0].choice, free.context.answers[0].chosen], [null, "先备份再删"]);
+});
+
+test("a decision names the events it was asked about, so a source can tie the result to the id it sent", () => {
+  clean();
+  const { id } = asked(1);
+  answer(id, { choice: 1, by: "me" }, at(2));
+  const job = claim("w1", at(2))!;
+  assert.deepEqual(
+    job.context.events.map((e) => e.id),
+    [`card:${id}`],
+    "this round works on the answer alone",
+  );
+  assert.deepEqual(
+    job.context.answers.map((a) => a.events),
+    [["feedback:1:new"]],
+    "the event the question was asked about, under the id the source sent it with",
+  );
+  // The round the answer woke asks again: its own events are that answer, but the id the source sent still comes through.
+  finish(job.run, job.token, { outcome: "done", session: "s-1", ask: [{ ...question, key: "again" }] }, at(3));
+  const again = one<{ id: number }>("SELECT id FROM cards WHERE run_id = ?", [job.run])!.id;
+  answer(again, { choice: 0, by: "me" }, at(4));
+  assert.deepEqual(
+    claim("w1", at(4))!.context.answers.map((a) => a.events),
+    [["feedback:1:new"]],
+    "a second question still names the event the source sent",
+  );
 });
 
 test("an answer while another run holds the thread joins the next run, and a merged run still carries it", () => {
@@ -458,6 +486,21 @@ test("a card made after this run was claimed isn't in its scope", () => {
   assert.deepEqual(
     receipt.rejected.map((r) => r.card),
     [later],
+  );
+});
+
+test("a rule moved to another group still gets the cards it left open", () => {
+  clean();
+  const mine = asked(1).id;
+  underRules(
+    (rules) => (rules.rules[0].group = "moved"),
+    () => {
+      ingest("app", note(2), at(1));
+      assert.deepEqual(
+        claim("w1", at(2))!.context.open.map((c) => c.card),
+        [mine],
+      );
+    },
   );
 });
 
