@@ -1,0 +1,14 @@
+{
+  "说明": [
+    "推送前检查的实现在 agent-kit git-hooks/（写法见那里的 config.mjs），本仓库只写和默认值不同的地方；CI 用 agent-kit 的固定标签跑同一份规则检查（.github/workflows/check.yml）。",
+    "推送前只跑格式、类型、快速测试（约 2 分钟，跳过模拟和穷举），再加骨架的 .mjs 测试；全量 npm test 和模拟见 AGENTS「怎么改」。",
+    "listen、origin 两条（G-07）不用：中台默认监听 127.0.0.1，可按配置部署到服务器，入口靠密钥鉴权（docs/protocol.md）。",
+    "没有运行时依赖（AGENTS.md 原则），白名单里三个只用于开发：类型、类型检查、格式检查。"
+  ],
+  "prePushTests": "npm run format:check && npm run typecheck && npm run test:quick && node --test tests/*.test.mjs",
+  "checkRules": {
+    "scan": ["bin", "cli", "host", "kernel", "plugins", "protocol", "worker"],
+    "allowedDeps": ["@types/node", "prettier", "typescript"],
+    "off": ["listen", "origin"]
+  }
+}
