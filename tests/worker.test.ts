@@ -7,7 +7,8 @@
 // failed; a run over its time or told to stop goes on, or leaves its children behind; the hub is told it stopped before it
 // has; more than capacity at once are taken; a claim is thrown away before its job has arrived; a receipt that can't be read
 // redoes the work, isn't asked for again, is asked for without end, or is dropped without telling the owner; a session that
-// can't be gone on in fails the run instead of starting a new one, or keeps trying; a turn that went on in its session and
+// can't be gone on in fails the run instead of starting a new one, or keeps trying, or, when the new one won't start either,
+// hands back the session made up for it, so the retry can't go back to the old one; a turn that went on in its session and
 // then broke, said nothing, or vanished is run again in a new one, or loses that session; a turn's end that doesn't exit holds its
 // place for ever; an old turn's exit is taken for a new one's; the hub gone for ten minutes isn't told, told every minute,
 // taken as told when the telling failed, tried without end, or not told again after it came back and went away again.
@@ -21,7 +22,8 @@
 // folder it can't write to, holds up the others, ends the worker or fills the log. Over ACP, a retry in a session a turn
 // already started in that breaks before the prompt redoes the work in a new one, or does so because something else has the
 // session open just now, and one the agent refuses or can't go on in doesn't get a new one; a "没跑成" after a finished tool
-// call is run together with what came before it and counts as work done; a failed turn whose agent won't go, or leaves
+// call is run together with what came before it and counts as work done; an agent out of quota doesn't say until when, or
+// is started again in a new session that fails the same way; a failed turn whose agent won't go, or leaves
 // something holding its output, or closes its output and stays, holds its place until the time limit and loses the real
 // reason.
 import assert from "node:assert/strict";
@@ -125,6 +127,21 @@ writeFileSync(
 export default {
   command: (t) => ["/bin/sh", "-c", t.command[0]],
   read() {},
+};`,
+);
+
+// One out of quota: it says until when, which it printed, and never got its prompt.
+mkdirSync(join(home, "plugins", "limited"), { recursive: true });
+writeFileSync(
+  join(home, "plugins", "limited", "agent.ts"),
+  `
+export default {
+  command: (t) => ["/bin/sh", "-c", t.command[0]],
+  read(stdout, code) {
+    if (code === null) return {};
+    return { error: "hit your limit", limitedUntil: stdout.trim() };
+  },
+  link: (s) => "app://" + s,
 };`,
 );
 
@@ -261,6 +278,12 @@ test("a bad exit code, or no last message, is a failure saying why", async () =>
   assert.equal(resultOf(hub, bad).outcome, "failed");
   assert.match(resultOf(hub, bad).error, /退出码 3：boom/);
   assert.deepEqual([resultOf(hub, silent).outcome, resultOf(hub, silent).error], ["failed", "没留下结果"]);
+  // A plugin's reason long enough to be cut, with a character across the cut: the hub stores half of one as a replacement.
+  const long = job({ use: "scripted", command: [`printf '%s' '${"x".repeat(499)}😀tail' >&2; exit 1`] });
+  hub.jobs.push(long);
+  await until(w, () => hub.results.length === 3);
+  assert.ok(resultOf(hub, long).error.isWellFormed(), "no half a character at the cut");
+  assert.equal(resultOf(hub, long).error, "x".repeat(499));
 });
 
 test("a last message saying it couldn't, or that there was nothing to do, is what it says", async () => {
@@ -621,10 +644,31 @@ test("a session that can't be gone on in starts a new one, once", async () => {
     ["done", "开了新会话也做完了", "new"],
   );
   const failing = fakeHub();
-  failing.jobs.push(job({ use: "scripted", command: ["echo nope >&2; exit 1"], session: "old" }));
+  // Alive for a while, so the worker sees it running and says which session it's in before it fails.
+  failing.jobs.push(job({ use: "scripted", command: ["sleep 0.5; echo nope >&2; exit 1"], session: "old" }));
   const f = worker(failing);
   await until(f, () => failing.results.length === 1);
   assert.deepEqual([failing.results[0].outcome, failing.results[0].error], ["failed", "nope"]);
+  assert.equal(failing.results[0].session, undefined, "the hub keeps the old session for the retry");
+  assert.ok(
+    failing.starts.every(({ session }) => session === "old"),
+    "nothing made up here is handed in as started",
+  );
+});
+
+test("an agent out of quota says until when, and no new session is started for it", async () => {
+  const hub = fakeHub();
+  const launches = join(folder, "limited.launches");
+  const resets = "2026-11-06T05:50:00.000Z";
+  const saying = (time: string) => `echo x >> "${launches}"; echo ${time}; exit 1`;
+  const limited = job({ use: "limited", command: [saying(resets)], session: "old" });
+  const garbled = job({ use: "limited", command: [saying("1:50pm")] });
+  hub.jobs.push(limited, garbled);
+  const w = worker(hub);
+  await until(w, () => hub.results.length === 2);
+  assert.deepEqual([resultOf(hub, limited).outcome, resultOf(hub, limited).limitedUntil], ["failed", resets]);
+  assert.equal(resultOf(hub, garbled).limitedUntil, undefined, "the hub would refuse the whole result over it");
+  assert.equal(readFileSync(launches, "utf8"), "x\nx\n", "each launched once");
 });
 
 test("a turn that went on in its session and then broke stays there, and its prompt isn't run again", async () => {

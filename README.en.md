@@ -68,7 +68,7 @@ The numbers match the diagram above:
 1. **An event comes in.** A 9:00 AM schedule, a new GitHub issue, or a production alert becomes a standard event sent to the kernel.
 2. **Dispatched by your rules.** Your rules decide which agent handles it and in which folder. New events for the same subject while it is queued merge into one round.
 3. **Work one round and exit.** The agent puts its result in its final message, and the process exits.
-4. **Asks only when needed.** For sensitive actions like deleting data, restarting a service, spending money, or messaging people, the kernel sends you a card through Feishu or a desktop notification. While you take your time, no agent process runs and no tokens are spent.
+4. **Asks only when needed.** For sensitive actions like deleting data, taking a service down, spending money, or messaging people, the kernel sends you a card through Feishu or a desktop notification. While you take your time, no agent process runs and no tokens are spent.
 5. **One tap resumes it.** Your answer picks up the original conversation and finishes the job.
 
 Anything the agent can handle alone takes the auto-loop at the top of the diagram: finish outright, or schedule a follow-up check (say, in 30 minutes) without bothering you.
@@ -102,7 +102,7 @@ External events work the same way once the source is connected. To hand new GitH
 }
 ```
 
-`agent-autoloop pause <rule>` and `resume <rule>` pause and resume one rule: while paused it skips its scheduled times and doesn't take or queue events, and a resume doesn't catch up on its own. A resume lists the events the pause skipped and prints `agent-autoloop replay <rule> --since <time>`, which hands them all to the rule at once, each only once. `agent-autoloop run <rule>` runs it once now. These are kept in the hub's log; `rules.json` is not changed. `agent-autoloop runs [rule]` lists finished rounds, `--before <round>` pages back, and `agent-autoloop why <round>` tells the full story of one.
+`agent-autoloop pause <rule>` and `resume <rule>` pause and resume one rule: while paused it skips its scheduled times and doesn't take or queue events, and a resume doesn't catch up on its own. A resume lists the events the pause skipped and prints `agent-autoloop replay <rule> --since <time>`, which hands them all to the rule at once, each only once. `agent-autoloop run <rule>` runs it once now. These are kept in the hub's log; `rules.json` is not changed. `agent-autoloop runs [rule]` lists finished rounds, `--before <round>` pages back, and `agent-autoloop why <round>` tells the full story of one. `agent-autoloop wakeups [rule]` groups the last 100 rounds by rule and by what woke them (a recheck the agent booked, your answer, other events), with each group's round count, reported usage and a few round numbers, so a rule that keeps rechecking stands out.
 
 Changes take effect within seconds of saving. Run `agent-autoloop check` to validate, `agent-autoloop check <file>` to validate a draft without touching the running hub, `agent-autoloop rules explain [file]` to see the rules in effect and their next runs (a draft file too), and `agent-autoloop emit <type> --dry-run` to preview who an event would go to (it doesn't contact the hub or write to the log). If you make a mistake, or the file is deleted or can't be read, the hub keeps running the previous valid rules and sends you a card about it.
 
@@ -125,7 +125,7 @@ Order checked. We have enough stock in the warehouse.
 ```
 ````
 
-Besides `ask`, receipts can send notifications (`notice`), resolve open cards (`resolve`), schedule follow-up checks (`later`), and emit new events (`events`). A notice asks for nothing, but you can add a line of your own when you settle one, and it stays on the card; one marked `fyi` is only there to tell you, and has no button. If the JSON is invalid, the hub has the agent rewrite just that final message in the same session, without repeating completed work. If rewriting also fails, it keeps the original conclusion and tells you the receipt was not applied (a plain command has no session, so it goes straight to this). Going on in an old session works the same way: a new session starts only when the old one can't be continued. If it was continued and then broke partway, the run counts as failed and is retried in that session a few minutes later, not redone in a new one. A new event on the same thread starts a new session by default; with `"resume": true` in the rule it goes on in the last round's session.
+Besides `ask`, receipts can send notifications (`notice`), resolve open cards (`resolve`), schedule follow-up checks (`later`), and emit new events (`events`). A notice asks for nothing, but you can add a line of your own when you settle one, and it stays on the card; one marked `fyi` is only there to tell you, and has no button. If the JSON is invalid, the hub has the agent rewrite just that final message in the same session, without repeating completed work. If rewriting also fails, it keeps the original conclusion and tells you the receipt was not applied (a plain command has no session, so it goes straight to this). Going on in an old session works the same way: a new session starts only when the old one can't be continued. If it was continued and then broke partway, the run counts as failed and is retried in that session a few minutes later, not redone in a new one. A new event on the same thread starts a new session by default; with `"resume": true` in the rule it goes on in the last round's session. When Claude Code hits its subscription usage limit, the hub stops handing it work until the reset time it reported, keeps queued and new events waiting, picks them up again at that time by itself, and tells you once when that will be.
 
 ## Ready-to-use recipes
 
@@ -154,12 +154,12 @@ Built-in plugins ship with the program and are enabled through configuration. Us
 
 | Side | Built in | Setup |
 |---|---|---|
-| **Events**: how work is found | [GitHub Webhook](plugins/github/source.ts), [GitLab Webhook](plugins/gitlab/source.ts), [HTTP API](docs/protocol.md#来源把世界变成事件), [cron rules](skills/agent-autoloop/SKILL.md#改规则), [issue polling script](examples/watch-github-issues.sh) | [Guide](skills/agent-autoloop/SKILL.md#接一个事件插件) |
+| **Events**: how work is found | [GitHub Webhook](plugins/github/source.ts), [GitLab Webhook](plugins/gitlab/source.ts), [HTTP API](docs/protocol.md#来源把世界变成事件), [cron rules](skills/agent-autoloop/SKILL.md#改规则), [issue polling script](examples/recipes/github-issues/watch.ts) | [Guide](skills/agent-autoloop/SKILL.md#接一个事件插件) |
 | **Agents**: who does the work | [Claude Code](plugins/claude/agent.ts), [Codex](plugins/codex/agent.ts), [ACP](plugins/acp/agent.ts), [DeepSeek Harness](plugins/dsh/agent.ts), [ZCode](plugins/zcode/agent.ts), [generic command](plugins/command/agent.ts) | [Guide](skills/agent-autoloop/SKILL.md#接一个-agent) |
 | **Channels**: how cards reach you | [Desktop notifications](plugins/desktop/channel.ts) (on by default), [Feishu](plugins/feishu/channel.ts), [DingTalk / WeCom / Slack / Discord](plugins/webhook/templates.ts) | [Guide](skills/agent-autoloop/SKILL.md#接一个通道) |
 | **Delivery**: CI/CD as a plugin | [`delivery`](plugins/delivery/delivery.ts) | [Guide](skills/agent-autoloop/SKILL.md#交付流水线) |
 
-**What has been tested:** Claude Code, Codex, and ACP (with the official Codex ACP adapter) have run multi-turn Q&A and session resumption across processes. ZCode has run a question, an answer, and the resumed session. Feishu has run real delivery, button callbacks, and card updates. The four webhook templates have only been checked against local mock servers, and the GitLab webhook against the payloads in its docs, not a real GitLab. These text channels answer through a link, so `hub.publicUrl` must be reachable from your phone or computer.
+**What has been tested:** Claude Code, Codex, and ACP (with the official Codex ACP adapter) have run multi-turn Q&A and session resumption across processes. ZCode has run a question, an answer, and the resumed session. [Agentica](https://github.com/shibing624/agentica) 1.6.1 has run multi-turn Q&A and cross-process session resumption over `use: "acp"`. Feishu has run real delivery, button callbacks, and card updates. The four webhook templates have only been checked against local mock servers, and the GitLab webhook against the payloads in its docs, not a real GitLab. These text channels answer through a link, so `hub.publicUrl` must be reachable from your phone or computer.
 
 **Built-in agents through another service.** To send Claude Code or Codex to a third-party model service, or to set environment variables before it starts, write a small script that sets them and starts the program, then put `"program": "/path/to/script"` on the agent. Session resumption and usage reporting still work. See the [guide](skills/agent-autoloop/SKILL.md#接一个-agent).
 
@@ -176,7 +176,7 @@ Built-in plugins ship with the program and are enabled through configuration. Us
 
 OpenClaw's `agent exec` stops each run after 600 seconds by default, and that counts as a failure; for longer work add `--timeout <seconds>` to the command (`0` means no limit).
 
-Agents that speak ACP connect with `use: "acp"` and can go on in the same session: [Gemini CLI](https://geminicli.com/docs/cli/acp-mode/) is `"command": ["gemini", "--acp"]`, and [OpenCode](https://opencode.ai/docs/acp) is `"command": ["opencode", "acp"]`. Both answered the ACP handshake (Gemini CLI 0.67.0, OpenCode 1.1.2); multi-turn Q&A and session resumption have not been run yet.
+Agents that speak ACP connect with `use: "acp"` and can go on in the same session: [Agentica](https://github.com/shibing624/agentica) 1.6.1 is `"command": ["agentica", "acp"]`, [Gemini CLI](https://geminicli.com/docs/cli/acp-mode/) is `"command": ["gemini", "--acp"]`, [OpenCode](https://opencode.ai/docs/acp) is `"command": ["opencode", "acp"]`, and Antigravity is `"command": ["agy", "acp"]`. Agentica has run multi-turn Q&A and cross-process session resumption (the same `sessionId` via `session/load`); it stores ACP sessions in `~/.agentica/acp/sessions`, overridable with `AGENTICA_ACP_SESSION_DIR`. For a single turn without resumption, `use: "command"` with `["agentica", "--query", "{prompt}", "--print"]` also ran successfully, but reports no usage and keeps no session. Gemini CLI 0.67.0 and OpenCode 1.1.2 answered the ACP handshake; multi-turn Q&A and session resumption have not been run yet. Antigravity (agy 1.5.5) has run both on Windows.
 
 **Delivery pipeline.** Once delivery rules are configured, the `deliver` label takes a GitHub PR through review, CI, merge, deployment, and live-version verification. Projects can choose reviewers per authoring agent or share a policy. Delivery reads trusted settings from main and reviews a read-only snapshot on the worker.
 
@@ -224,10 +224,10 @@ Apple M5 Pro, 24 GB, Node 24.21.0. Each write is a separate request, acknowledge
 | Durable writes | 2,394 events/s |
 | Dispatch p99 | 1.82 ms |
 | Held-back heartbeat p99 with 5,000 queued | 1.66 ms |
-| Startup at 1.1 million facts | 99.8 ms |
+| Startup at 1.1 million facts | 112.3 ms |
 | Runtime dependencies | 0 |
 
-As history grows, the status summary slows down and the log and indexes keep using disk. The first start after a format change rebuilds from the log, which took 43.1 seconds for 1.1 million facts. [Full numbers and method](docs/protocol.md#历史增长实测) (in Chinese).
+As history grows, the status summary slows down and the log and indexes keep using disk. The first start after a format change rebuilds from the log, which took 48.2 seconds for 1.1 million facts. [Full numbers and method](docs/protocol.md#历史增长实测) (in Chinese).
 
 ## Usage and provider terms
 
