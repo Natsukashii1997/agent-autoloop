@@ -139,3 +139,11 @@ node --disable-warning=ExperimentalWarning --test tests/conformance.test.ts
 检查其他中台实现时，用 `agent-autoloop conformance <测试地址> --config <测试凭据文件>`，文件格式见[协议](protocol.md#一致性和复现)。它会写事件和卡片，只对专用测试中台运行。
 
 插件本身的完整接入测试见 [tests/example-plugins.test.ts](../tests/example-plugins.test.ts)。用其他语言写独立进程也可以，参考 [curl/jq 通道](../examples/channel.sh)和[接单程序](../examples/worker.sh)。
+
+## 数字分身的插件放哪
+
+2026-11-26 常浩定：原来单独建的 `Natsukashii1997/dt-autoloop-plugins` 并进本仓库，旧仓库归档（跨项目复盘 D2 盘点第 20 条）。那个仓库只有一份说明、没有代码。
+
+- 以后数字分身给中台写的插件（计划中的 `dt-feishu` 飞书只发不收的通道、`dt-worktree` 按任务建 worktree 的启动脚本）放本仓库，按上面「通道插件」「Agent 插件」的写法写，用 `agent-autoloop add <本地路径>` 装进中台（安装目录的插件优先于内置）。
+- 个人配置（规则、档位表、Skill、出口脚本）仍放 digital-twin，不放这里。
+- 方案出处：digital-twin `docs/agent-autoloop-底座-方案.md` 第 3.2 节。
